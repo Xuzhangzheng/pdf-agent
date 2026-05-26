@@ -1,0 +1,36 @@
+# pdf-agent MVP dependencies
+python-dotenv>=1.0.0
+eval-type-backport>=0.2.0
+numpy==1.26.4
+opencv-python-headless==4.6.0.66
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# PDF
+pymupdf>=1.24.0
+
+# MinerU: pip install "magic-pdf[cpu]"  (see scripts/setup_env.sh)
+
+# Indexing & retrieval
+chromadb>=0.4.22
+rank-bm25>=0.2.2
+jieba>=0.42.1
+
+# LLM
+openai>=1.30.0
+langgraph>=0.2.0
+langchain-core>=0.3.0
+
+# Rerank fallback (optional)
+# sentence-transformers>=2.7.0
+
+# UI
+streamlit>=1.35.0
+
+# Dev / CI
+pytest>=7.4.0
+
+# Utils
+httpx>=0.27.0
+tenacity>=8.2.0
+tiktoken>=0.7.0

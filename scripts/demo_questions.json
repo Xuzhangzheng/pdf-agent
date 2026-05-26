@@ -1,0 +1,156 @@
+{
+  "version": "1.0",
+  "questions": [
+    {
+      "id": "q01_scope",
+      "question": "本标准规定了什么范围？适用于哪些类型的键？",
+      "category": "scope",
+      "expected_behavior": "answer",
+      "must_refuse": false,
+      "citation": { "min_count": 1, "require_page": true, "require_table_ref": false },
+      "retrieval": { "must_include_chunk_types": [], "min_hits": 1 },
+      "answer_gold": {
+        "must_contain_any": ["范围", "键"],
+        "must_not_contain_any": []
+      },
+      "llm_judge": {
+        "enabled": true,
+        "rubric": "回答应说明标准范围（除花键外的各种键的技术要求、验收检查、标志与包装），并提及适用的键类型（如平键、楔键等），与证据一致即可。"
+      }
+    },
+    {
+      "id": "q02_clause",
+      "question": "键的技术要求中，对表面粗糙度或外观质量有哪些规定？",
+      "category": "clause",
+      "expected_behavior": "answer",
+      "must_refuse": false,
+      "citation": { "min_count": 1, "require_page": true, "require_table_ref": false },
+      "retrieval": { "must_include_chunk_types": ["clause"], "min_hits": 1 },
+      "answer_gold": {
+        "must_contain_any": ["粗糙", "表面", "外观", "质量", "技术"],
+        "must_not_contain_any": []
+      },
+      "llm_judge": {
+        "enabled": true,
+        "rubric": "回答应引用标准中具体技术要求条款，不得编造未在证据中出现的数值。"
+      }
+    },
+    {
+      "id": "q03_table",
+      "question": "请根据标准中的表格说明键的尺寸、公差或相关参数限值。",
+      "category": "table",
+      "expected_behavior": "answer",
+      "must_refuse": false,
+      "citation": { "min_count": 1, "require_page": true, "require_table_ref": true },
+      "retrieval": { "must_include_chunk_types": ["table"], "min_hits": 1 },
+      "answer_gold": {
+        "must_contain_any": ["表", "尺寸", "公差", "mm", "参数"],
+        "must_not_contain_any": []
+      },
+      "llm_judge": {
+        "enabled": true,
+        "rubric": "基于表1写出键宽/键高/键长等行的AQL等表中可见数值（不要求毫米尺寸），标注[p.N 表1]；涉及平行度/斜度可结合3.5/3.6，有数字与引用即通过。"
+      }
+    },
+    {
+      "id": "q04_composite",
+      "question": "键的抗拉强度要求是什么？验收检查与表1中的检查项目有何关系？",
+      "category": "composite",
+      "expected_behavior": "answer",
+      "must_refuse": false,
+      "citation": { "min_count": 2, "require_page": true, "require_table_ref": false },
+      "retrieval": { "must_include_chunk_types": [], "min_hits": 2 },
+      "answer_gold": {
+        "must_contain_any": ["抗拉强度", "590", "表", "检查"],
+        "must_not_contain_any": []
+      },
+      "llm_judge": {
+        "enabled": true,
+        "rubric": "应说明3.1抗拉强度要求，并关联表1或4.3抽样/检查项目，均有页码引用。"
+      }
+    },
+    {
+      "id": "q05_out_of_scope",
+      "question": "本标准对手机蓝牙配对与加密协议有何要求？",
+      "category": "out_of_scope",
+      "expected_behavior": "refuse",
+      "must_refuse": true,
+      "citation": { "min_count": 0, "require_page": false, "require_table_ref": false },
+      "retrieval": { "must_include_chunk_types": [], "min_hits": 0 },
+      "answer_gold": { "must_contain_any": [], "must_not_contain_any": ["蓝牙", "加密协议"] },
+      "llm_judge": { "enabled": false, "rubric": "" }
+    },
+    {
+      "id": "q06_fuzzy",
+      "question": "这标准管啥的？键得满足啥？",
+      "category": "fuzzy",
+      "expected_behavior": "answer",
+      "must_refuse": false,
+      "fuzzy_pair_id": "fuzzy_scope",
+      "fuzzy_clear_question": "本标准规定了什么范围？键应满足哪些技术要求？",
+      "citation": { "min_count": 1, "require_page": true, "require_table_ref": false },
+      "retrieval": { "must_include_chunk_types": [], "min_hits": 1 },
+      "answer_gold": {
+        "must_contain_any": ["范围", "键", "技术"],
+        "must_not_contain_any": []
+      },
+      "llm_judge": {
+        "enabled": true,
+        "rubric": "口语化问题也应得到与标准范围和键技术要求相关的有据回答。"
+      }
+    },
+    {
+      "id": "q07_ocr_robust",
+      "question": "条款 4.l.2 对键的形位公差有何要求？",
+      "category": "ocr_robust",
+      "expected_behavior": "answer",
+      "must_refuse": false,
+      "citation": { "min_count": 1, "require_page": true, "require_table_ref": false },
+      "retrieval": { "must_include_chunk_types": [], "min_hits": 1, "clause_id_pattern": "4.1.2" },
+      "answer_gold": {
+        "must_contain_any": ["公差", "形位", "4"],
+        "must_not_contain_any": []
+      },
+      "llm_judge": {
+        "enabled": true,
+        "rubric": "应识别4.l.2为4.1.2并引用该条；若4.1.2不涉及形位公差须如实说明，可补充3.5/3.6等公差相关条款，不得无据拒答。"
+      }
+    },
+    {
+      "id": "q08a_regression",
+      "question": "键的检验规则包括哪些内容？",
+      "category": "regression",
+      "expected_behavior": "answer",
+      "must_refuse": false,
+      "regression_group": "reg_inspection",
+      "citation": { "min_count": 1, "require_page": true, "require_table_ref": false },
+      "retrieval": { "must_include_chunk_types": [], "min_hits": 1 },
+      "answer_gold": {
+        "must_contain_any": ["检验", "规则", "抽样", "合格"],
+        "must_not_contain_any": []
+      },
+      "llm_judge": {
+        "enabled": true,
+        "rubric": "回答应覆盖检验/验收相关要点且有引用。"
+      }
+    },
+    {
+      "id": "q08b_regression",
+      "question": "标准里怎么规定键的检验和验收？",
+      "category": "regression",
+      "expected_behavior": "answer",
+      "must_refuse": false,
+      "regression_group": "reg_inspection",
+      "citation": { "min_count": 1, "require_page": true, "require_table_ref": false },
+      "retrieval": { "must_include_chunk_types": [], "min_hits": 1 },
+      "answer_gold": {
+        "must_contain_any": ["检验", "规则", "抽样", "合格"],
+        "must_not_contain_any": []
+      },
+      "llm_judge": {
+        "enabled": true,
+        "rubric": "应涵盖检验、抽样、表1、验收、合格等要点，与q08a大体一致即可，有引用。"
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "temp-output-dir": "artifacts/mineru",
+  "device-mode": "cpu",
+  "models-dir": "artifacts/mineru/models",
+  "bucket_info": {
+    "[default]": ["", "", ""]
+  }
+}

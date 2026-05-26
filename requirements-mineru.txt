@@ -1,0 +1,5 @@
+# MinerU / PaddleOCR 依赖（必须在 numpy 1.x 下安装）
+# 安装顺序见 scripts/fix_mineru_env.sh
+numpy==1.26.4
+opencv-python-headless==4.6.0.66
+magic-pdf[cpu]>=0.6.0

@@ -1,0 +1,30 @@
+[project]
+name = "pdf-agent"
+version = "0.1.0"
+description = "Intelligent document QA agent for scanned GB/T standards"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "pymupdf>=1.24.0",
+    "chromadb>=0.4.22",
+    "rank-bm25>=0.2.2",
+    "jieba>=0.42.1",
+    "openai>=1.30.0",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "streamlit>=1.35.0",
+    "httpx>=0.27.0",
+    "tenacity>=8.2.0",
+    "tiktoken>=0.7.0",
+]
+
+[project.optional-dependencies]
+mineru = ["magic-pdf>=0.6.0"]
+rerank-local = ["sentence-transformers>=2.7.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
