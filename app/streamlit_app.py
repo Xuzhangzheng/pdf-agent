@@ -367,16 +367,24 @@ with tab3:
                                 {"role": "assistant", "content": f"错误：{e}"}
                             )
                 st.session_state["qa_pending"] = None
+                if "qa_chat_input" in st.session_state:
+                    del st.session_state["qa_chat_input"]
                 st.rerun()
 
-        q = st.chat_input("输入问题…", key="qa_chat_input")
-        if q:
-            st.session_state["qa_pending"] = q
-            st.rerun()
+        if not st.session_state.get("qa_pending"):
+            q = st.chat_input("输入问题…", key="qa_chat_input")
+            if q:
+                st.session_state["qa_question_id"] = f"ui-{uuid.uuid4().hex[:8]}"
+                st.session_state["qa_pending"] = q
+                if "qa_chat_input" in st.session_state:
+                    del st.session_state["qa_chat_input"]
+                st.rerun()
         if st.session_state["qa_messages"] and st.button("清空对话", key="qa_clear"):
             st.session_state["qa_messages"] = []
             st.session_state["qa_pending"] = None
             st.session_state["qa_question_id"] = f"ui-{uuid.uuid4().hex[:8]}"
+            if "qa_chat_input" in st.session_state:
+                del st.session_state["qa_chat_input"]
             st.rerun()
 
 def _api_base() -> str:

@@ -7,11 +7,13 @@ from typing import Any, Iterator
 
 from src.agent.orchestrator import _ensure_index
 from src.agent.query_graph import (
-    REFUSE_TEMPLATE,
     _enrich_citations_from_evidence,
     _extract_citations,
-    _has_answerable_evidence,
-    _is_out_of_scope_question,
+)
+from src.agent.refusal import (
+    REFUSE_TEMPLATE,
+    apply_refuse_verification,
+    route_after_reflect,
 )
 from src.config.settings import get_settings
 from src.generation.answerer import Answerer
@@ -40,38 +42,6 @@ def _state_from_evidence(
     }
 
 
-def _route_after_reflect(state: AgentState, reflection: Any) -> str:
-    settings = get_settings()
-    action = reflection.action
-    risk = reflection.hallucination_risk
-    has_ev = len(state.get("evidence") or []) > 0
-    if risk == "high":
-        if _has_answerable_evidence(state) and state.get("reflection_count", 0) < settings.max_reflection:
-            return "revise"
-        return "refuse"
-    if reflection.should_refuse:
-        if _has_answerable_evidence(state):
-            if state.get("reflection_count", 0) < settings.max_reflection:
-                return "revise"
-            return "respond"
-        if has_ev and state.get("reflection_count", 0) < settings.max_reflection:
-            return "revise"
-        return "refuse"
-    if action == "revise":
-        if state.get("reflection_count", 0) < settings.max_reflection:
-            return "revise"
-        if reflection.unsupported_claims and not _has_answerable_evidence(state):
-            return "refuse"
-        return "respond"
-    if action == "refuse":
-        if _has_answerable_evidence(state):
-            return "respond"
-        return "refuse"
-    if reflection.unsupported_claims and not _has_answerable_evidence(state):
-        return "refuse"
-    return "respond"
-
-
 def stream_ask(
     question: str,
     *,
@@ -82,6 +52,7 @@ def stream_ask(
     _ensure_index()
     settings = get_settings()
     trace_id = str(uuid.uuid4())
+    turn_question_id = f"{chat_session_id}-{trace_id[:8]}"
     answerer = Answerer()
     retriever = HybridRetriever(settings)
 
@@ -89,46 +60,29 @@ def stream_ask(
         with query_trace_context(
             session_id=trace_id,
             question=question,
-            question_id=chat_session_id,
+            question_id=turn_question_id,
         ):
             yield _sse("status", {"stage": "start", "trace_id": trace_id})
-
-            if _is_out_of_scope_question(question):
-                yield _sse("status", {"stage": "refuse"})
-                yield _sse(
-                    "done",
-                    {
-                        "answer": REFUSE_TEMPLATE,
-                        "citations": [],
-                        "verification": {
-                            "should_refuse": True,
-                            "has_evidence": False,
-                            "hallucination_risk": "low",
-                        },
-                        "trace_id": trace_id,
-                        "revised": False,
-                    },
-                )
-                return
 
             yield _sse("status", {"stage": "retrieve"})
             out = retriever.retrieve(
                 question,
-                question_id=chat_session_id,
+                question_id=turn_question_id,
                 session_id=trace_id,
             )
             if out.hard_refuse or not out.evidence:
+                hard_state: AgentState = {
+                    "question": question,
+                    "evidence": [],
+                    "hard_refused": True,
+                }
                 yield _sse("status", {"stage": "refuse"})
                 yield _sse(
                     "done",
                     {
                         "answer": REFUSE_TEMPLATE,
                         "citations": [],
-                        "verification": {
-                            "should_refuse": True,
-                            "has_evidence": False,
-                            "hallucination_risk": "low",
-                        },
+                        "verification": apply_refuse_verification(hard_state),
                         "trace_id": trace_id,
                         "revised": False,
                     },
@@ -140,7 +94,7 @@ def stream_ask(
             for chunk in answerer.generate_draft_stream(
                 question,
                 out.evidence,
-                question_id=chat_session_id,
+                question_id=turn_question_id,
                 session_id=trace_id,
                 history=history,
             ):
@@ -158,12 +112,13 @@ def stream_ask(
                     question,
                     out.evidence,
                     answer,
-                    question_id=chat_session_id,
+                    question_id=turn_question_id,
                     session_id=trace_id,
                 )
                 reflection_rounds += 1
                 state["reflection_count"] = reflection_rounds
-                route = _route_after_reflect(state, reflection)
+                state["_last_reflection"] = reflection.model_dump()
+                route = route_after_reflect(state, reflection, settings=settings)
 
                 if route == "revise":
                     yield _sse("status", {"stage": "revise"})
@@ -172,7 +127,7 @@ def stream_ask(
                         out.evidence,
                         answer,
                         reflection.critique,
-                        question_id=chat_session_id,
+                        question_id=turn_question_id,
                         session_id=trace_id,
                     )
                     revised = True
@@ -184,27 +139,30 @@ def stream_ask(
                 break
 
             ev_dicts = [e.model_dump() for e in out.evidence]
-            cites = _extract_citations(answer)
-            cites = _enrich_citations_from_evidence(cites, ev_dicts)
-            if not cites and ev_dicts and answer != REFUSE_TEMPLATE:
-                for e in ev_dicts:
-                    if e.get("page"):
-                        cites.append(
-                            {
-                                "page": e.get("page"),
-                                "snippet": (e.get("text") or "")[:80],
-                                "clause_id": e.get("clause_id"),
-                                "table_id": e.get("table_id"),
-                            }
-                        )
-                        break
-
-            verification = {
-                "has_evidence": bool(out.evidence),
-                "hallucination_risk": "low",
-                "should_refuse": answer == REFUSE_TEMPLATE,
-                "reflection_rounds": reflection_rounds,
-            }
+            if answer == REFUSE_TEMPLATE:
+                verification = apply_refuse_verification(state)
+                cites: list[dict[str, Any]] = []
+            else:
+                cites = _extract_citations(answer)
+                cites = _enrich_citations_from_evidence(cites, ev_dicts)
+                if not cites and ev_dicts:
+                    for e in ev_dicts:
+                        if e.get("page"):
+                            cites.append(
+                                {
+                                    "page": e.get("page"),
+                                    "snippet": (e.get("text") or "")[:80],
+                                    "clause_id": e.get("clause_id"),
+                                    "table_id": e.get("table_id"),
+                                }
+                            )
+                            break
+                verification = {
+                    "has_evidence": bool(out.evidence),
+                    "hallucination_risk": "low",
+                    "should_refuse": False,
+                    "reflection_rounds": reflection_rounds,
+                }
 
             yield _sse(
                 "done",

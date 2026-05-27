@@ -78,9 +78,66 @@ def wants_appearance_clauses(query: str) -> bool:
 _COMPOSITE_KW = ("抗拉强度", "材料", "热处理", "硬度", "表1", "检查项目")
 
 
+_SCOPE_KW = (
+    "范围",
+    "适用于",
+    "规定什么",
+    "管啥的",
+    "管啥",
+    "哪些类型",
+    "讲什么",
+    "说什么",
+    "讲的是什么",
+    "什么内容",
+)
+
+_TECH_REQUIREMENTS_OVERVIEW_KW = (
+    "技术条件",
+    "包含着",
+    "包含什么",
+    "包含哪些",
+    "有哪些内容",
+    "包括什么",
+    "包括哪些",
+    "具体包含",
+    "都包含",
+    "有哪些规定",
+    "有哪些要求",
+)
+
+
+def wants_scope_answer(query: str) -> bool:
+    return any(k in query for k in _SCOPE_KW)
+
+
+def wants_technical_requirements_overview(query: str) -> bool:
+    """问标准/技术条件整体包含哪些内容（范围 + 第3章等）。"""
+    if wants_scope_answer(query):
+        return True
+    return any(k in query for k in _TECH_REQUIREMENTS_OVERVIEW_KW)
+
+
+def is_english_boilerplate_text(text: str) -> bool:
+    """MinerU 页眉英文标题等，对中文问答无证据价值。"""
+    t = (text or "").strip()
+    if not t or len(t) > 160:
+        return False
+    chinese = sum(1 for ch in t if "\u4e00" <= ch <= "\u9fff")
+    if chinese >= 10:
+        return False
+    lower = t.lower()
+    if "technical specification" in lower and "key" in lower:
+        return True
+    return chinese == 0 and len(t) < 100 and t.isascii()
+
+
 def wants_composite_strength_table(query: str) -> bool:
     return "抗拉强度" in query and ("表" in query or "检查" in query)
 
 
 def wants_inspection_topics(query: str) -> bool:
     return any(k in query for k in ("检验", "验收", "抽样", "合格质量"))
+
+
+# 第 3 章「技术要求」常用条款（技术条件总览题检索钉住）
+TECH_REQUIREMENTS_CLAUSE_IDS = ("3.1", "3.2", "3.3", "3.4", "3.5", "3.6")

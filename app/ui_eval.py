@@ -92,7 +92,7 @@ def _check_metric(key: str, value: Any, settings: Settings) -> bool | None:
     if key == "clause_retrieval_hit":
         return float(value) >= settings.clause_hit_threshold
     if key == "llm_judge_pass_rate":
-        return float(value) >= 0.8
+        return float(value) >= settings.eval_llm_judge_pass_threshold
     if key in ("fuzzy_recall_pass", "ocr_robust_pass", "regression_consistency"):
         return bool(value)
     return None
@@ -101,6 +101,8 @@ def _check_metric(key: str, value: Any, settings: Settings) -> bool | None:
 def _threshold_label(key: str, settings: Settings) -> str:
     if key == "clause_retrieval_hit":
         return f"≥ {settings.clause_hit_threshold:.0%}"
+    if key == "llm_judge_pass_rate":
+        return f"≥ {settings.eval_llm_judge_pass_threshold:.0%}"
     for k, _, thresh, _ in _METRIC_SPECS:
         if k == key:
             return thresh.replace("≥阈值", f"≥ {settings.clause_hit_threshold:.0%}")
@@ -116,9 +118,11 @@ def _failed_reasons(metrics: dict[str, Any], settings: Settings) -> list[str]:
         if ok is False:
             reasons.append(f"**{_label}**（`{key}`={metrics[key]}）：{hint}")
     if not metrics.get("eval_overall_pass", True):
-        if metrics.get("llm_judge_pass_rate", 1.0) < 0.8:
+        judge_thresh = settings.eval_llm_judge_pass_threshold
+        if metrics.get("llm_judge_pass_rate", 1.0) < judge_thresh:
+            pct = int(judge_thresh * 100)
             reasons.append(
-                "**LLM Judge 未达 80%** 常见于 Judge 非确定性，可重跑 "
+                f"**LLM Judge 未达 {pct}%** 常见于 Judge 非确定性，可重跑 "
                 "`python scripts/evaluate.py`，不必先怀疑 ingest 闸门。"
             )
     return reasons

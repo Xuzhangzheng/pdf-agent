@@ -6,7 +6,9 @@ from src.llm.ark_client import ArkClient
 from src.models.agent import Evidence, ReflectionResult
 from src.retrieval.query_signals import (
     wants_composite_strength_table,
+    wants_scope_answer,
     wants_table_evidence,
+    wants_technical_requirements_overview,
 )
 
 
@@ -42,6 +44,9 @@ class Answerer:
                     "须用「条款4.1.2」引用并概括该条正文；若该条不涉及所问概念，如实说明，"
                     "可补充 3.5/3.6/表1 等公差相关证据。\n"
                     "3) 范围题须说明适用于「除花键外的各种键」及证据中的键类型。\n"
+                    "3b) 问技术条件/标准包含哪些内容时：先写范围条（技术要求、验收检查、标志与包装），"
+                    "再分项概括第3章各条（3.1抗拉强度、3.2表面、3.3型面、3.4–3.6等）并逐条引用；"
+                    "5.4「协议」条款仅作补充，不能代替第3章列举。\n"
                     "4) 证据仅部分相关时，回答已有部分并说明未规定的内容，不要整题拒答。\n"
                     "4b) 问表面/外观/粗糙度时，必须引用 3.2（裂纹、浮锈等）和/或 3.3，"
                     "勿说「未规定」；勿引用无关条款（如 3.7）。\n"
@@ -49,12 +54,24 @@ class Answerer:
                     "说明抗拉强度试验的 AQL/抽样与表1检查项目同属验收检查体系，"
                     "禁止写「文档未提及关系」。\n"
                     "6) 材料/热处理/硬度：若证据无专条，可说明未单独规定，并引用抗拉强度等相关条款。\n"
-                    "7) 勿轻易写「无法从本文档回答」；仅当问题与键标准完全无关（如蓝牙、手机加密）时才用拒答模板。\n"
+                    "7) 若问题与键标准无关（如抗震混凝土、通信协议等），"
+                    "而证据均为键标准条文，应如实说明证据未涉及所问内容，勿编造。\n"
                     "8) 问检验/验收/抽样时，须含「见表1」或 4.3 尺寸检查、4.4 抽检协议等要点，"
                     "与「检验规则」类问题表述可一致（抽样、合格质量水平、AQL）。"
         )
 
     def _hint_for_question(self, question: str) -> str:
+        if wants_technical_requirements_overview(question):
+            return (
+                "\n\n【技术条件/范围总览：①范围条（技术要求、验收检查、标志与包装）；"
+                "②第3章分项列出证据中3.1–3.6等条款要点，每条带[p.N 条款x]；"
+                "③勿仅用5.4协议一句带过。】"
+            )
+        if wants_scope_answer(question):
+            return (
+                "\n\n【范围题：说明除花键外的各种键及技术要求/验收/标志包装；"
+                "若证据列出平键、楔键、半圆键等类型须写出。】"
+            )
         if wants_composite_strength_table(question):
             return (
                 "\n\n【须分两段作答：①3.1 抗拉强度数值；"
@@ -156,9 +173,11 @@ class Answerer:
                     '{"has_evidence":bool,"hallucination_risk":"low|medium|high",'
                     '"should_refuse":bool,"unsupported_claims":[],"missing_citations":[],'
                     '"critique":"...","action":"accept|revise|re_retrieve|refuse"}\n'
-                    "should_refuse=true 仅当：完全无相关证据，或草稿编造了证据中不存在的事实。"
+                    "should_refuse=true 当：证据主题与问题明显不符（无法从键标准条文回答），"
+                    "或草稿编造了证据中不存在的事实；此时宜 action=refuse，has_evidence=false。"
                     "条款号 OCR 误写、问题概念与条文不完全一致时，用 revise 修正而非 refuse。"
                     "表格题若未用表证据，action=revise。"
+                    "勿要求终稿展开与键标准无关领域的具体规定。"
                     "critique 字段勿使用反斜杠 LaTeX（如 \\geq），用 Unicode 或纯文本。"
                 ),
             },

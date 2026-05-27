@@ -1,10 +1,10 @@
 """对 MongoDB 历史会话消息做离线质量评测（不重新跑 RAG）。"""
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from typing import Any
 
+from src.agent.refusal import is_refused_state
 from src.config.settings import Settings, get_settings
 from src.evaluation.llm_judge import LlmJudge
 
@@ -13,17 +13,11 @@ _SESSION_JUDGE_RUBRIC = (
     "若回答为拒答说明则判 pass。"
 )
 
-_REFUSE_MARKERS = ("无法可靠回答", "无法从本文档回答")
-
 
 def _looks_refused(answer: str, verification: dict[str, Any]) -> bool:
-    if verification.get("should_refuse"):
-        return True
-    if any(m in answer for m in _REFUSE_MARKERS):
-        return True
-    if "无法从本文档回答" in answer and not re.search(r"\[p\.\d+", answer):
-        return True
-    return False
+    return is_refused_state(
+        {"final_answer": answer, "verification": verification}
+    )
 
 
 def _citations_ok(citations: list[dict[str, Any]]) -> bool:
@@ -191,7 +185,10 @@ def evaluate_session(
         hard.append(metrics["reflection_fields_present"] >= 1.0)
         hard.append(metrics["unsupported_claims_empty"] >= 1.0)
         if judge_total:
-            hard.append(metrics["llm_judge_pass_rate"] >= 0.8)
+            hard.append(
+                metrics["llm_judge_pass_rate"]
+                >= settings.eval_llm_judge_pass_threshold
+            )
     session_pass = bool(hard) and all(hard) if turns else False
 
     metrics["session_overall_pass"] = session_pass

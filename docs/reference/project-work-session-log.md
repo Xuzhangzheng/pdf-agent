@@ -12,6 +12,7 @@
 | 2026-05-21 | 需求理解与技术实施讨论 | 19:18 | | | 进行中 |
 | 2026-05-21 | AI 代码生成及环境配置阶段（项目骨架、MinerU/ingest、OCR 后处理、rerank 端点修复、`.env` 与依赖） | 20:30 | 22:15 | 105 | |
 | 2026-05-26 | 评测达标：MinerU 基线、Rerank 后钉住表/条款、双稠密索引、pytest、`eval_overall_pass`；移除 Docling/fusion | | | | 见 `submission-checklist.md` |
+| 2026-05-27 | 逻辑调整归档：Streamlit 多轮、Judge 阈值、拒答去关键词、技术条件总览 pin/生成 | | | | [logic-adjustments-decision-log.md](./logic-adjustments-decision-log.md) |
 | 2026-05-26 | 文档与代码对齐：`docs/README.md`、规范更新、历史文档迁入 `docs/archive/` | | | | |
 | 2026-05-26 | 文档分子目录：overview / ingest / retrieval / agent / evaluation 等 | | | | |
 | 2026-05-27 | MinerU 环境排障、ingest/evaluate 修复、依赖锁定与文档同步（见下节） | | | | 代码+文档；见 `environment.md` §5 |

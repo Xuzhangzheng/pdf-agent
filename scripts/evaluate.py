@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -15,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.agent.orchestrator import ask, index_ready
+from src.agent.refusal import is_refused_state
 from src.config.settings import get_settings
 from src.evaluation.llm_judge import LlmJudge
 from src.evaluation.models import DemoQuestionBank
@@ -117,15 +117,7 @@ def run_evaluation(skip_llm_judge: bool = False) -> dict:
         ver = state.get("verification") or {}
         re_retrieve_count += int(ver.get("re_retrieve_count", 0) or 0)
 
-        ans = state.get("final_answer") or ""
-        refused = bool(ver.get("should_refuse")) or "无法可靠回答" in ans
-        if "无法从本文档回答" in ans and not re.search(r"\[p\.\d+", ans):
-            refused = True
-        if q.category == "out_of_scope":
-            refused = refused or (
-                ("未" in ans or "无" in ans)
-                and any(k in ans for k in ("蓝牙", "加密", "配对", "手机"))
-            )
+        refused = is_refused_state(state)
         row = {
             "id": q.id,
             "category": q.category,
@@ -275,7 +267,9 @@ def run_evaluation(skip_llm_judge: bool = False) -> dict:
         metrics["clause_retrieval_hit"] >= settings.clause_hit_threshold if clause_total else True,
         metrics["reflection_fields_present"] >= 1.0,
         metrics["unsupported_claims_empty"] >= 1.0,
-        metrics["llm_judge_pass_rate"] >= 0.8 if judge_total else True,
+        metrics["llm_judge_pass_rate"] >= settings.eval_llm_judge_pass_threshold
+        if judge_total
+        else True,
         metrics["fuzzy_recall_pass"],
         metrics["ocr_robust_pass"],
         metrics["regression_consistency"],

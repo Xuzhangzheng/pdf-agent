@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from src.config.settings import Settings, get_settings
 from src.llm.ark_client import ArkClient
 from src.models.blocks import Chunk
 
 logger = logging.getLogger(__name__)
+
+_RETRY_HINT = (
+    "上次输出不是合法 JSON 数组。请只输出形如 [\"问题1\", \"问题2\"] 的 JSON，"
+    "字符串内不要出现未转义的双引号，不要 markdown，不要解释。"
+)
 
 _PROMPT = """你是标准文档检索助手。根据下面「证据片段」，生成 {n} 个用户可能会问的中文问题。
 
@@ -39,6 +45,51 @@ def load_questions_cache(settings: Settings | None = None) -> dict[str, list[str
     except Exception as e:
         logger.warning("Failed to load question cache %s: %s", path, e)
         return None
+
+
+def _questions_from_parsed(parsed: Any) -> list[str]:
+    if isinstance(parsed, list):
+        return [str(x).strip() for x in parsed if str(x).strip()]
+    if isinstance(parsed, dict):
+        for key in ("questions", "items", "data"):
+            val = parsed.get(key)
+            if isinstance(val, list):
+                return [str(x).strip() for x in val if str(x).strip()]
+    return []
+
+
+def extract_questions_from_llm_text(raw: str) -> list[str]:
+    """从 LLM 原始输出解析问句列表；parse_json 失败时做数组截取与引号抽取。"""
+    text = (raw or "").strip()
+    if not text:
+        return []
+    try:
+        return _questions_from_parsed(ArkClient.parse_json(text))
+    except json.JSONDecodeError:
+        pass
+
+    start, end = text.find("["), text.rfind("]")
+    if start >= 0 and end > start:
+        snippet = text[start : end + 1]
+        for candidate in (snippet, ArkClient._fix_invalid_json_escapes(snippet)):
+            try:
+                parsed = json.loads(candidate)
+                qs = _questions_from_parsed(parsed)
+                if qs:
+                    return qs
+            except json.JSONDecodeError:
+                continue
+
+    quoted = re.findall(r'"((?:[^"\\]|\\.)*)"', text)
+    qs: list[str] = []
+    for q in quoted:
+        if "\\" in q:
+            try:
+                q = bytes(q, "utf-8").decode("unicode_escape")
+            except ValueError:
+                pass
+        qs.append(q.strip())
+    return [q for q in qs if len(q) >= 4]
 
 
 def save_questions_cache(
@@ -84,31 +135,42 @@ def generate_questions_for_chunks(
         if not snippet:
             out[c.chunk_id] = []
             continue
-        messages = [
+        messages: list[dict[str, str]] = [
             {
                 "role": "user",
                 "content": _PROMPT.format(n=n, text=snippet),
             }
         ]
-        try:
-            raw = ark.chat(
-                messages,
-                temperature=0.0,
-                json_mode=True,
-                stage="index_hypothetical_questions",
-                session_id=session_id,
+        qs: list[str] = []
+        last_err: Exception | None = None
+        for attempt in range(3):
+            try:
+                raw = ark.chat(
+                    messages,
+                    temperature=0.0,
+                    json_mode=True,
+                    stage="index_hypothetical_questions",
+                    session_id=session_id,
+                )
+                qs = extract_questions_from_llm_text(raw)
+                if qs:
+                    break
+                last_err = ValueError("empty question list from model")
+            except Exception as e:
+                last_err = e
+            if attempt < 2:
+                messages.append({"role": "user", "content": _RETRY_HINT})
+
+        if not qs:
+            logger.warning(
+                "Question gen failed for %s (ingest continues; chunk has no "
+                "hypothetical question vectors): %s",
+                c.chunk_id,
+                last_err,
             )
-            parsed = ark.parse_json(raw)
-            if isinstance(parsed, list):
-                qs = [str(x).strip() for x in parsed if str(x).strip()]
-            elif isinstance(parsed, dict) and "questions" in parsed:
-                qs = [str(x).strip() for x in parsed["questions"] if str(x).strip()]
-            else:
-                qs = []
-        except Exception as e:
-            logger.warning("Question gen failed for %s: %s", c.chunk_id, e)
-            qs = []
         out[c.chunk_id] = qs[:n]
+        if idx % 10 == 0:
+            save_questions_cache(out, settings)
 
     save_questions_cache(out, settings)
     return out

@@ -68,6 +68,7 @@ docs/
 | [evaluation-spec.md](./evaluation/evaluation-spec.md) | `evaluate.py`、`demo_questions.json` | 指标与题库 |
 | [submission-checklist.md](./evaluation/submission-checklist.md) | `eval_report.json` | 作业达标、演示选题 |
 | [demo-recording-guide.md](./evaluation/demo-recording-guide.md) | Streamlit、`evaluate.py` | 作业 §四-3 录屏/截图 |
+| [operations-manual.md](./evaluation/operations-manual.md) | `setup.sh`、`ingest.py`、Streamlit | **演示五步操作手册**（部署→解析→问答→自检→评测） |
 | [usage-and-cost-spec.md](./evaluation/usage-and-cost-spec.md) | `usage.py` | Token 审计 |
 
 ## demo — 演示交付物
@@ -90,6 +91,7 @@ docs/
 
 | 文档 | 说明 |
 |------|------|
+| [logic-adjustments-decision-log.md](./reference/logic-adjustments-decision-log.md) | **2026-05 逻辑调整**：原因、备选方案、最终决策（Streamlit/评测/拒答/技术条件总览） |
 | [homework-original-requirements.md](./reference/homework-original-requirements.md) | 出题方原文 |
 | [project-work-session-log.md](./reference/project-work-session-log.md) | 工时与阶段记录 |
 

@@ -29,6 +29,8 @@ class LlmJudge:
                 "role": "system",
                 "content": (
                     "你是评测裁判。仅根据证据与回答判断金标要点是否覆盖。"
+                    "金标为要点覆盖而非逐字穷举；与证据一致、未编造、已覆盖 rubric "
+                    "核心要求时应判 pass。"
                     '输出 JSON: {"pass": true/false, "reason": "..."}'
                 ),
             },

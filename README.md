@@ -113,6 +113,7 @@ PDF 默认路径：`pdf/GBT 1568-2008 键 技术条件.pdf`（4 页）。
 ## 演示材料（作业 §四-3）
 
 - **录制脚本与截图清单**：[`docs/evaluation/demo-recording-guide.md`](docs/evaluation/demo-recording-guide.md)
+- **演示操作手册（五步）**：[`docs/evaluation/operations-manual.md`](docs/evaluation/operations-manual.md)
 - **截图目录说明**：[`docs/demo/screenshots/`](docs/demo/screenshots/README.md)（可选提交 PNG）
 - **评测文字证明**：[`docs/demo/eval-proof.md`](docs/demo/eval-proof.md)（`python3 scripts/export_eval_proof.py` 生成；终验须 `eval_overall_pass=true`）
 

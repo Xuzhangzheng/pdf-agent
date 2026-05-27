@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(claude plugin *)",
+      "Bash(mkdir -p ~/.claude/skills)",
+      "Bash(cp -r ~/.claude/plugins/marketplaces/alexei-led-cc-thingz/skills/reviewing-code ~/.claude/skills/reviewing-code)",
+      "Bash(git clone *)",
+      "Bash(npx skills *)",
+      "Bash(GIT_HTTP_LOW_SPEED_LIMIT=0 GIT_HTTP_LOW_SPEED_TIME=0 git clone *)",
+      "Bash(curl *)",
+      "Bash(git config *)",
+      "Bash(env)",
+      "Bash(GIT_CURL_VERBOSE=1 git clone https://github.com/better-world-ai/x-cli.git --depth 1 /tmp/x-cli)"
+    ]
+  }
+}

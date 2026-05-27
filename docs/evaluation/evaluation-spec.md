@@ -89,7 +89,7 @@
 | `clause_retrieval_hit` | 条款题：Top-K 含 `clause_id` 匹配或 BM25 命中条款串 | **≥80%** | POC 后可调 `CLAUSE_HIT_THRESHOLD` |
 | `reflection_fields_present` | 含 `has_evidence`,`hallucination_risk`,`should_refuse` | **100%** | 作业第 6 步 |
 | `unsupported_claims_empty` | accept 题 `unsupported_claims==[]` | **100%** | 高严格防幻觉 |
-| `llm_judge_pass_rate` | `answer_gold` 且 `llm_judge.enabled` 的题 ARK judge `pass` | **≥80%** | 语义正确 |
+| `llm_judge_pass_rate` | `answer_gold` 且 `llm_judge.enabled` 的题 ARK judge `pass` | **≥ `eval_llm_judge_pass_threshold`（默认 0.8）** | 语义正确；常为 `eval_overall_pass` 主因，见 [logic-adjustments-decision-log.md](../reference/logic-adjustments-decision-log.md#adr-02评测-eval_overall_pass-与-llm-judge) |
 | `fuzzy_recall_pass` | 见 §2.2 | **通过** | 模糊问 |
 | `ocr_robust_pass` | ocr 题 `retrieval_hit` | **通过** | OCR 场景 |
 | `regression_consistency` | 见 §2.2 | **通过** | 回归 |
@@ -121,7 +121,16 @@
 
 `cost_summary` 字段见 [usage-and-cost-spec.md](./usage-and-cost-spec.md)。
 
-## 6. 修订记录
+## 6. 配置项（Settings）
+
+| 字段 | 默认 | 说明 |
+|------|------|------|
+| `eval_llm_judge_enabled` | `true` | 是否调用 ARK Judge |
+| `eval_llm_judge_pass_threshold` | `0.8` | `llm_judge_pass_rate` 硬性通过线 |
+
+拒答判定与 Judge 共用 [`is_refused_state`](../../src/agent/refusal.py)（见决策归档 ADR-02、ADR-03）。
+
+## 7. 修订记录
 
 | 日期 | 版本 | 说明 |
 |------|------|------|

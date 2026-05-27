@@ -106,6 +106,9 @@ doc.json chunks
 | OCR 条款 | `extract_clause_ids_from_query`（如 `4.l.2`→`4.1.2`） | 注入目标 `clause_id` chunk |
 | 外观/粗糙度 | `wants_appearance_clauses` | 注入 3.2、3.3 |
 | 复合（抗拉强度+表1） | `wants_composite_strength_table` | 注入 3.1、4.2、表1 |
+| 技术条件/范围总览 | `wants_technical_requirements_overview` | metadata boost；RRF 对 `is_english_boilerplate_text` ×0.05；`_pin_technical_overview_chunks`（范围条 + 3.1–3.6） |
+
+ingest 阶段：`structure.py` 丢弃英文页眉块（需 `--force-full` 重建索引才从 FAISS 清除）。决策背景见 [logic-adjustments-decision-log.md](../reference/logic-adjustments-decision-log.md#adr-04技术条件--包含哪些总览题)。
 
 **Pin 时机**：Rerank **之后** 再钉住必需块（评测读最终 Top-N `evidence`），必要时挤掉低分项，保证 `table_retrieval_hit` / `clause_retrieval_hit`。
 
@@ -124,3 +127,4 @@ doc.json chunks
 | 2026-05-22 | 初版：结构分块 + 正文/问句双稠密 + RRF 归并 |
 | 2026-05-26 | 增补检索守卫、metadata boost、hard_refuse 例外 |
 | 2026-05-26 | 稠密存储 Chroma → FAISS（`artifacts/faiss/`） |
+| 2026-05-27 | 技术条件总览 pin、英文 boilerplate 降权/丢弃 |

@@ -41,6 +41,7 @@
 | **S4** | 页码优先 MinerU `page_idx`，缺失用 PDF 页序 | 引用含页码 |
 | **S5** | 条款匹配但编辑距离>1 → `confidence=low` | OCR 题仍可召回 |
 | **S6** | 无法解析条款 → `paragraph`，`clause_id=null`，**不丢文本** | ingest 不中断 |
+| **S7** | `is_english_boilerplate_text`（MinerU 英文页眉）→ **丢弃块** | 避免「技术条件」总览题误召回；见 [logic-adjustments-decision-log.md](../reference/logic-adjustments-decision-log.md#adr-04技术条件--包含哪些总览题) |
 
 ## 4. Ingest 质量闸门
 

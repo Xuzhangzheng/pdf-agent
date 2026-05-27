@@ -15,12 +15,15 @@ from src.indexing.indexer import DocumentIndexer
 from src.models.agent import Evidence
 from src.models.blocks import Chunk
 from src.retrieval.query_signals import (
+    TECH_REQUIREMENTS_CLAUSE_IDS,
     extract_clause_ids_from_query,
     extract_table_id_from_query,
+    is_english_boilerplate_text,
     wants_appearance_clauses,
     wants_composite_strength_table,
     wants_inspection_topics,
     wants_table_evidence,
+    wants_technical_requirements_overview,
 )
 from src.retrieval.reranker import Reranker
 
@@ -113,6 +116,45 @@ class HybridRetriever:
             if wants_inspection_topics(query):
                 if c.clause_id in ("4.3", "4.4") or c.chunk_type == "table":
                     rrf[cid] += boost
+            if wants_technical_requirements_overview(query):
+                if "技术要求、验收检查" in c.text or "除花键外的各种键的技术要求" in c.text:
+                    rrf[cid] += boost * 2.5
+                if c.clause_id and c.clause_id in TECH_REQUIREMENTS_CLAUSE_IDS:
+                    rrf[cid] += boost * 1.8
+                if c.section_title and "3技术要求" in c.section_title:
+                    rrf[cid] += boost * 0.8
+            if is_english_boilerplate_text(c.text):
+                rrf[cid] *= 0.05
+
+    def _pin_technical_overview_chunks(
+        self,
+        chunks: list[Chunk],
+        have: set[str],
+    ) -> list[Evidence]:
+        """技术条件/范围总览：钉住范围条 + 第3章主要条款。"""
+        pinned: list[Evidence] = []
+        for c in chunks:
+            if c.chunk_id in have:
+                continue
+            if "除花键外的各种键的技术要求" in c.text or (
+                "技术要求、验收检查、标志与包装" in c.text
+            ):
+                pinned.append(
+                    self._chunk_to_evidence(c, rrf_score=1.0, rerank_score=1.0)
+                )
+                have.add(c.chunk_id)
+                break
+        for cid in TECH_REQUIREMENTS_CLAUSE_IDS:
+            if any(e.clause_id == cid for e in pinned):
+                continue
+            for c in chunks:
+                if c.clause_id == cid and c.chunk_id not in have:
+                    pinned.append(
+                        self._chunk_to_evidence(c, rrf_score=1.0, rerank_score=1.0)
+                    )
+                    have.add(c.chunk_id)
+                    break
+        return pinned
 
     @staticmethod
     def _find_table_chunk(
@@ -207,6 +249,10 @@ class HybridRetriever:
                         self._chunk_to_evidence(tc, rrf_score=1.0, rerank_score=1.0)
                     )
 
+        if wants_technical_requirements_overview(query):
+            for pe in self._pin_technical_overview_chunks(chunks, have):
+                pinned.append(pe)
+
         if not pinned:
             return evidence
 
@@ -216,6 +262,24 @@ class HybridRetriever:
     def _order_for_rerank(
         self, pre_evidence: list[Evidence], query: str
     ) -> list[Evidence]:
+        if wants_technical_requirements_overview(query):
+            scope = [
+                e
+                for e in pre_evidence
+                if "技术要求、验收检查" in e.text
+                or "除花键外的各种键的技术要求" in e.text
+            ]
+            clauses = [
+                e
+                for e in pre_evidence
+                if e.clause_id in TECH_REQUIREMENTS_CLAUSE_IDS
+            ]
+            rest = [
+                e
+                for e in pre_evidence
+                if e not in scope and e not in clauses
+            ]
+            return scope + clauses + rest
         if not wants_table_evidence(query):
             return pre_evidence
         tables = [e for e in pre_evidence if e.chunk_type == "table"]
@@ -290,6 +354,10 @@ class HybridRetriever:
                 if tc and tc.chunk_id not in have:
                     injected.append(self._chunk_to_evidence(tc, rrf_score=1.0))
                     have.add(tc.chunk_id)
+
+        if wants_technical_requirements_overview(query):
+            for pe in self._pin_technical_overview_chunks(chunks, have):
+                injected.append(pe)
 
         if not injected:
             return evidence

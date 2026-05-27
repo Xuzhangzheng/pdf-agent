@@ -15,6 +15,68 @@ def ensure_session_state() -> None:
         st.session_state["pending_chat"] = None
 
 
+def _chat_input_version_key(sid: str) -> str:
+    return f"chat_input_ver_{sid}"
+
+
+def _chat_input_widget_key(sid: str) -> str:
+    ver = st.session_state.get(_chat_input_version_key(sid), 0)
+    return f"chat_input_{sid}_{ver}"
+
+
+def _bump_chat_input_version(sid: str) -> None:
+    vk = _chat_input_version_key(sid)
+    st.session_state[vk] = int(st.session_state.get(vk, 0)) + 1
+
+
+def _clear_chat_input_widget_state(sid: str) -> None:
+    """移除当前及历史 chat_input widget 的 session_state 条目。"""
+    ver = int(st.session_state.get(_chat_input_version_key(sid), 0))
+    for i in range(ver + 1):
+        wkey = f"chat_input_{sid}_{i}"
+        st.session_state.pop(wkey, None)
+
+
+def _transcript_cache_key(sid: str) -> str:
+    return f"chat_transcript_{sid}"
+
+
+def _sync_transcript_cache(sid: str, api_msgs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """以 API 为准同步本地 transcript，保证多轮瀑布流展示不丢历史。"""
+    key = _transcript_cache_key(sid)
+    if api_msgs:
+        st.session_state[key] = api_msgs
+        return api_msgs
+    return st.session_state.get(key, [])
+
+
+def _render_stored_message(
+    m: dict[str, Any],
+    *,
+    langfuse_trace_url: Callable[[str], str | None],
+) -> None:
+    role = m.get("role", "user")
+    msg_id = m.get("id", id(m))
+    with st.chat_message("user" if role == "user" else "assistant"):
+        st.markdown(m.get("content", ""))
+        if role == "assistant":
+            cites = m.get("citations") or []
+            ver = m.get("verification") or {}
+            tid = m.get("trace_id")
+            if cites or ver or tid:
+                with st.expander("引用 / 详情", expanded=False, key=f"msg_detail_{msg_id}"):
+                    if cites:
+                        st.markdown("**引用**")
+                        st.json(cites)
+                    if ver:
+                        st.markdown("**自检**")
+                        st.json(ver)
+                    if tid:
+                        lf = langfuse_trace_url(tid)
+                        if lf:
+                            st.markdown(f"[Langfuse Trace]({lf})")
+
+
 def render_session_tab(
     *,
     settings: Settings,
@@ -49,6 +111,7 @@ def render_session_tab(
                     s = api_post("/api/sessions", {})
                     st.session_state["chat_session_id"] = s["id"]
                     st.session_state["pending_chat"] = None
+                    _bump_chat_input_version(s["id"])
                     st.rerun()
                 except Exception as e:
                     st.error(str(e))
@@ -77,6 +140,7 @@ def render_session_tab(
                 ):
                     st.session_state["chat_session_id"] = sid_item
                     st.session_state["pending_chat"] = None
+                    _bump_chat_input_version(sid_item)
                     st.rerun()
             if sid:
                 st.caption(f"当前：{sid[:12]}…")
@@ -106,38 +170,38 @@ def _render_chat_panel(
     consume_sse: Callable[[str, str], Iterator[str]],
     langfuse_trace_url: Callable[[str], str | None],
 ) -> None:
-    msgs: list[dict[str, Any]] = []
-    try:
-        msgs = api_get(f"/api/sessions/{sid}/messages")
-    except Exception as e:
-        st.error(str(e))
-
     pending = st.session_state.get("pending_chat")
-    pending_q = None
+    pending_q: str | None = None
     if pending and pending.get("session_id") == sid:
         pending_q = pending.get("question")
 
+    api_msgs: list[dict[str, Any]] = []
+    try:
+        api_msgs = api_get(f"/api/sessions/{sid}/messages")
+    except Exception as e:
+        st.error(str(e))
+
+    msgs = _sync_transcript_cache(sid, api_msgs)
+
     with st.container(border=True):
-        chat_scroll = st.container(height=480, border=False)
+        chat_scroll = st.container(height=520, border=False)
         with chat_scroll:
             if not msgs and not pending_q:
                 st.markdown(
-                    '<p class="doubao-muted">开始提问吧。输入框固定在页面底部。</p>',
+                    '<p class="doubao-muted">在下方输入问题开始多轮对话；'
+                    "历史轮次会依次堆叠显示。</p>",
                     unsafe_allow_html=True,
                 )
+
             for m in msgs:
-                role = m.get("role", "user")
-                with st.chat_message("user" if role == "user" else "assistant"):
-                    st.markdown(m.get("content", ""))
-                    if role == "assistant" and m.get("citations"):
-                        with st.expander("引用", expanded=False):
-                            st.json(m.get("citations"))
+                _render_stored_message(m, langfuse_trace_url=langfuse_trace_url)
 
             if pending_q:
                 with st.chat_message("user"):
                     st.markdown(pending_q)
                 with st.chat_message("assistant"):
                     try:
+                        st.session_state.pop("last_chat_done", None)
                         st.write_stream(consume_sse(pending_q, sid))
                         done = st.session_state.get("last_chat_done")
                         if done:
@@ -145,7 +209,11 @@ def _render_chat_panel(
                                 "streamed_draft"
                             ):
                                 st.markdown(done.get("answer", ""))
-                            with st.expander("本轮详情", expanded=False):
+                            with st.expander(
+                                "本轮详情",
+                                expanded=False,
+                                key=f"pending_detail_{sid}",
+                            ):
                                 st.json(
                                     {
                                         "citations": done.get("citations"),
@@ -160,10 +228,16 @@ def _render_chat_panel(
                                     st.markdown(f"[Langfuse Trace]({lf})")
                     except Exception as e:
                         st.error(str(e))
+
                 st.session_state["pending_chat"] = None
+                _clear_chat_input_widget_state(sid)
+                _bump_chat_input_version(sid)
                 st.rerun()
 
-    q = st.chat_input("输入问题，Enter 发送…", key=f"chat_input_{sid}")
+    widget_key = _chat_input_widget_key(sid)
+    q = st.chat_input("输入问题，Enter 发送…", key=widget_key)
     if q:
         st.session_state["pending_chat"] = {"session_id": sid, "question": q}
+        _clear_chat_input_widget_state(sid)
+        _bump_chat_input_version(sid)
         st.rerun()

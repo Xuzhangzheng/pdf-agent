@@ -96,6 +96,11 @@ def parse_page_markdown(page: int, md: str, section_title: str | None = None) ->
         if not text:
             buf = []
             return
+        from src.retrieval.query_signals import is_english_boilerplate_text
+
+        if is_english_boilerplate_text(text):
+            buf = []
+            return
         ctype = buf_type
         if MD_TABLE_RE.search(text) or HTML_TABLE_RE.search(text):
             ctype = "table"

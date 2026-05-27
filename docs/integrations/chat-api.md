@@ -50,8 +50,21 @@ MONGODB_DB=pdf_agent
 
 首版在 **generate** 阶段 SSE 输出 token；**reflect/revise** 同步执行。若 `revised=true`，`done.answer` 为终稿，可能与流式草稿不同。
 
+## Streamlit 多轮（ADR-01）
+
+实现：`app/ui_session.py`、`app/streamlit_app.py`。
+
+| 问题 | 对策 |
+|------|------|
+| 第二轮仍提交第一轮文案 | `chat_input_{sid}_{ver}`，提交后 bump 版本并清除旧 widget state |
+| 会话 Tab 历史与当前流割裂 | `_sync_transcript_cache` 以 API 消息为真源，底部追加 `pending_chat` SSE |
+| 问答 Tab 题号串扰 | 每轮独立 `qa_question_id` |
+
+详见 [logic-adjustments-decision-log.md](../reference/logic-adjustments-decision-log.md#adr-01streamlit-多轮会话与瀑布流展示)。
+
 ## 修订
 
 | 日期 | 说明 |
 |------|------|
 | 2026-05-26 | 初版 |
+| 2026-05-27 | Streamlit 多轮与 transcript 同步（ADR-01） |

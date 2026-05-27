@@ -6,48 +6,17 @@ from typing import Any
 
 from langgraph.graph import END, StateGraph
 
+from src.agent.refusal import (
+    REFUSE_TEMPLATE,
+    apply_refuse_verification,
+    has_answerable_evidence,
+    route_after_reflect,
+)
 from src.config.settings import get_settings
 from src.generation.answerer import Answerer
-from src.models.agent import AgentState, ReflectionResult, VerificationResult
-from src.retrieval.query_signals import (
-    extract_clause_ids_from_query,
-    wants_appearance_clauses,
-    wants_table_evidence,
-)
+from src.models.agent import AgentState, VerificationResult
+from src.retrieval.query_signals import extract_clause_ids_from_query
 from src.retrieval.retriever import HybridRetriever
-
-
-REFUSE_TEMPLATE = "根据已检索的文档内容，无法可靠回答该问题。建议核对问题是否与《键 技术条件》标准相关。"
-
-_OUT_OF_SCOPE_MARKERS = ("蓝牙", "加密协议", "手机", "Wi-Fi", "wifi", "配对")
-
-
-def _is_out_of_scope_question(question: str) -> bool:
-    return any(m in question for m in _OUT_OF_SCOPE_MARKERS)
-
-
-def _target_clause_in_evidence(state: AgentState) -> bool:
-    targets = extract_clause_ids_from_query(state.get("question", ""))
-    if not targets:
-        return False
-    for e in state.get("evidence") or []:
-        if (e.get("clause_id") or "") in targets:
-            return True
-    return False
-
-
-def _has_answerable_evidence(state: AgentState) -> bool:
-    """有目标条款、外观条款或表块时，避免 reflect 误拒。"""
-    if _target_clause_in_evidence(state):
-        return True
-    q = state.get("question", "")
-    for e in state.get("evidence") or []:
-        cid = e.get("clause_id") or ""
-        if wants_appearance_clauses(q) and cid in ("3.2", "3.3"):
-            return True
-        if wants_table_evidence(q) and e.get("chunk_type") == "table":
-            return True
-    return False
 
 
 def _enrich_citations_from_evidence(
@@ -113,18 +82,6 @@ def build_query_graph():
     answerer = Answerer()
 
     def retrieve_node(state: AgentState) -> AgentState:
-        if _is_out_of_scope_question(state["question"]):
-            return {
-                **state,
-                "evidence": [],
-                "hard_refused": True,
-                "verification": {
-                    "has_evidence": False,
-                    "hallucination_risk": "low",
-                    "should_refuse": True,
-                    "unsupported_claims": [],
-                },
-            }
         q = state.get("rewritten_query") or state["question"]
         out = retriever.retrieve(
             q,
@@ -234,7 +191,7 @@ def build_query_graph():
         answer = state.get("draft_answer", "")
         ver = dict(state.get("verification") or {})
         ver["should_refuse"] = False
-        if _has_answerable_evidence(state):
+        if has_answerable_evidence(state):
             ver["unsupported_claims"] = []
         cites = _extract_citations(answer)
         cites = _enrich_citations_from_evidence(
@@ -261,16 +218,11 @@ def build_query_graph():
         }
 
     def refuse_node(state: AgentState) -> AgentState:
-        ver = dict(state.get("verification") or {})
-        ver["should_refuse"] = True
-        if state.get("hard_refused"):
-            ver["has_evidence"] = False
-            ver["hallucination_risk"] = "low"
         return {
             **state,
             "final_answer": REFUSE_TEMPLATE,
             "citations": [],
-            "verification": ver,
+            "verification": apply_refuse_verification(state),
         }
 
     def route_after_retrieve(state: AgentState) -> str:
@@ -278,42 +230,8 @@ def build_query_graph():
             return "refuse"
         return "generate"
 
-    def route_after_reflect(state: AgentState) -> str:
-        last = state.get("_last_reflection", {})
-        action = last.get("action", "accept")
-        risk = last.get("hallucination_risk", "low")
-        has_ev = len(state.get("evidence") or []) > 0
-        if risk == "high":
-            if _has_answerable_evidence(state) and state.get(
-                "reflection_count", 0
-            ) < settings.max_reflection:
-                return "revise"
-            return "refuse"
-        if last.get("should_refuse"):
-            if _has_answerable_evidence(state):
-                if state.get("reflection_count", 0) < settings.max_reflection:
-                    return "revise"
-                return "respond"
-            if has_ev and state.get("reflection_count", 0) < settings.max_reflection:
-                return "revise"
-            return "refuse"
-        if action == "re_retrieve":
-            if state.get("re_retrieve_count", 0) < settings.max_re_retrieve:
-                return "rewrite_query"
-            return "refuse"
-        if action == "revise":
-            if state.get("reflection_count", 0) < settings.max_reflection:
-                return "revise"
-            if last.get("unsupported_claims") and not _has_answerable_evidence(state):
-                return "refuse"
-            return "respond"
-        if action == "refuse":
-            if _has_answerable_evidence(state):
-                return "respond"
-            return "refuse"
-        if last.get("unsupported_claims") and not _has_answerable_evidence(state):
-            return "refuse"
-        return "respond"
+    def route_after_reflect_node(state: AgentState) -> str:
+        return route_after_reflect(state, settings=settings)
 
     graph = StateGraph(AgentState)
     graph.add_node("retrieve", retrieve_node)
@@ -333,7 +251,7 @@ def build_query_graph():
     graph.add_edge("generate", "reflect")
     graph.add_conditional_edges(
         "reflect",
-        route_after_reflect,
+        route_after_reflect_node,
         {
             "respond": "respond",
             "revise": "revise",

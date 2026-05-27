@@ -6,6 +6,7 @@
 ## 演示材料（§四-3）
 
 - **分镜与截图清单**：[demo-recording-guide.md](./demo-recording-guide.md)
+- **逐步操作手册**：[operations-manual.md](./operations-manual.md)
 - **材料目录**：[docs/demo/README.md](../demo/README.md)
 - **评测文字证明**：运行 `python3 scripts/export_eval_proof.py` → [docs/demo/eval-proof.md](../demo/eval-proof.md)
 

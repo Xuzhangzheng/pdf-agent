@@ -26,4 +26,4 @@ source .venv/bin/activate
 - Agent：`src/agent/query_graph.py`
 - 评测：`scripts/evaluate.py`、`scripts/demo_questions.json`
 
-历史讨论在 `docs/archive/`；现行规范以 `docs/overview/architecture.md` 与代码为准。
+历史讨论在 `docs/archive/`；现行规范以 `docs/overview/architecture.md` 与代码为准。2026-05 逻辑调整决策见 `docs/reference/logic-adjustments-decision-log.md`。

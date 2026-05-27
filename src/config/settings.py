@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     eval_llm_judge_enabled: bool = True
     eval_pass_strict: bool = True
     clause_hit_threshold: float = 0.8
+    eval_llm_judge_pass_threshold: float = 0.8
 
     # Langfuse 自托管观测（替代 artifacts/usage/*.jsonl）
     langfuse_enabled: bool = True

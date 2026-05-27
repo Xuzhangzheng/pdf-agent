@@ -52,25 +52,32 @@ JSON 解析：`ArkClient.parse_json` 对 LLM 返回中非法反斜杠（如 LaTe
 |------|----------|
 | `hallucination_risk == high` 且无可回答证据 | `refuse` |
 | `hallucination_risk == high` 且有 `_has_answerable_evidence` | `revise`（未超 `MAX_REFLECTION`） |
-| `should_refuse` 且有目标条款/表/外观证据 | `revise` 或最终 `respond` |
+| `should_refuse` 且 `has_answerable_evidence` | `revise` 或最终 `respond` |
+| `should_refuse` 且非 `has_answerable_evidence` | `refuse`（检索块与问题无关时） |
 | `action == revise` 且未超轮次 | `revise` → `reflect` |
 | `action == re_retrieve` 且未超 `MAX_RE_RETRIEVE` | `rewrite_query` → `retrieve` |
 | 否则 | `respond` |
 
-`_has_answerable_evidence`：问句目标条款已在 evidence；或外观题含 3.2/3.3；或表题含 `chunk_type=table`。
+`has_answerable_evidence`（[`src/agent/refusal.py`](../../src/agent/refusal.py)）：问句目标条款已在 evidence；或外观题含 3.2/3.3；或表题含 `chunk_type=table`；或技术条件总览题（`wants_technical_requirements_overview`）含 `TECH_REQUIREMENTS_CLAUSE_IDS` 或范围条文本。
+
+去关键词拒答与路由细节见 [logic-adjustments-decision-log.md](../reference/logic-adjustments-decision-log.md#adr-03拒答机制去关键词捷径)。
 
 默认：`MAX_REFLECTION=2`，`MAX_RE_RETRIEVE=1`。
 
 ## 4. 拒答优先级
 
+实现集中在 [`src/agent/refusal.py`](../../src/agent/refusal.py)（`REFUSE_TEMPLATE`、`route_after_reflect`、`is_refused_state`）。**无问句关键词捷径**；无关题（如 q05 蓝牙、抗震混凝土）均经检索 + 生成 + reflect 判定。
+
 ```text
-1. 超范围关键词（蓝牙/手机加密等）     → retrieve 直接 refuse
-2. index_missing / ingest_invalid       → refuse
-3. post_retrieve: hard_refuse_gate      → refuse（不调 generate）
-4. reflect 路由至 refuse
+1. index_missing / ingest_invalid       → refuse
+2. post_retrieve: hard_refuse_gate      → refuse（不调 generate）
+3. reflect：should_refuse 且非 has_answerable_evidence → refuse（不因 has_ev 块数误 revise）
+4. reflect 路由 action=refuse 等        → refuse
 5. re_retrieve 用尽仍无可用证据        → refuse
 6. 否则 respond（可经 revise）
 ```
+
+终稿拒答统一为 `REFUSE_TEMPLATE`；`verification.has_evidence` 在拒答时表示证据能否**支撑本题**（非检索块数量）。
 
 ### 4.1 硬门禁（`retriever.py`）
 
@@ -105,3 +112,4 @@ hard_refuse = len(evidence) == 0 or (
 |------|------|------|
 | 2026-05-21 | v1.0 | 计划确认后初版 |
 | 2026-05-26 | v1.1 | 对齐代码：无 nodes/、rerank 在 retriever、pin/路由/parse_json |
+| 2026-05-27 | v1.2 | `refusal.py` 集中拒答；无关键词捷径；总览题 `has_answerable_evidence` |

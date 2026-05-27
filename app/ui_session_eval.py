@@ -125,10 +125,14 @@ def render_session_eval_tab(
 
         report = st.session_state.get("session_eval_reports", {}).get(sid)
         if report:
-            _render_session_eval_report(report)
+            _render_session_eval_report(report, settings=settings)
 
 
-def _render_session_eval_report(report: dict[str, Any]) -> None:
+def _render_session_eval_report(
+    report: dict[str, Any],
+    *,
+    settings: Settings,
+) -> None:
     metrics = report.get("metrics", {})
     overall = report.get("session_overall_pass", metrics.get("session_overall_pass"))
     evaluated_at = report.get("evaluated_at", "—")
@@ -159,19 +163,21 @@ def _render_session_eval_report(report: dict[str, Any]) -> None:
                 continue
             val = metrics[key]
             ok = True
+            judge_thresh = settings.eval_llm_judge_pass_threshold
             if key == "llm_judge_pass_rate":
-                ok = float(val) >= 0.8
+                ok = float(val) >= judge_thresh
             else:
                 ok = float(val) >= 1.0
             if not ok:
                 st.markdown(f"- **{label}** = {val:.2%}（期望 {thresh}）")
 
     rows: list[dict[str, str]] = []
+    judge_thresh = settings.eval_llm_judge_pass_threshold
     for key, label, thresh in _SESSION_METRIC_SPECS:
         if key not in metrics or metrics[key] is None:
             continue
         val = metrics[key]
-        ok = float(val) >= (0.8 if key == "llm_judge_pass_rate" else 1.0)
+        ok = float(val) >= (judge_thresh if key == "llm_judge_pass_rate" else 1.0)
         rows.append(
             {
                 "指标": label,

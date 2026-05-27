@@ -5,6 +5,7 @@
 ## 必读
 
 - **录制脚本与分镜**：[demo-recording-guide.md](../evaluation/demo-recording-guide.md)
+- **逐步操作手册**：[operations-manual.md](../evaluation/operations-manual.md)
 - **提交达标清单**：[submission-checklist.md](../evaluation/submission-checklist.md)
 
 ## 目录说明
