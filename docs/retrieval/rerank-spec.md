@@ -13,7 +13,7 @@
 
 **出处**：[百炼文本排序 API](https://help.aliyun.com/zh/model-studio/text-rerank-api)；作业检索精排需求。
 
-**与 Embedding 分工**：`text-embedding-v4` 召回（Chroma + BM25 + RRF）；`qwen3-rerank` 对 Top-12 精排 → Top-5 进 `generate`。
+**与 Embedding 分工**：`text-embedding-v4` 召回（FAISS + BM25 + RRF）；`qwen3-rerank` 对 Top-12 精排 → Top-5 进 `generate`。
 
 ## 2. 调用标准
 

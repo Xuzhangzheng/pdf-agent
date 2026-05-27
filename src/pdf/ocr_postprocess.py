@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from src.pdf.table_postprocess import normalize_table_latex
+
 logger = logging.getLogger(__name__)
 
 _GAP_TAG = "[OCR缺口]"
@@ -200,6 +202,7 @@ def postprocess_text(text: str) -> OcrPostprocessResult:
     t = _merge_split_411_line(t, fixes)
     t = _mark_clause_gaps(t, fixes)
     t = _insert_newlines_after_period(t, fixes)
+    t = normalize_table_latex(t)
 
     gaps = detect_clause_gaps(t)
     low = _detect_garbled(t) or bool(gaps) or _GAP_TAG in t

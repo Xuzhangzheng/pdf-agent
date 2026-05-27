@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Iterator
+
 from src.llm.ark_client import ArkClient
 from src.models.agent import Evidence, ReflectionResult
 from src.retrieval.query_signals import (
@@ -25,31 +27,8 @@ class Answerer:
     def __init__(self, ark: ArkClient | None = None):
         self.ark = ark or ArkClient()
 
-    def generate_draft(
-        self,
-        question: str,
-        evidence: list[Evidence],
-        *,
-        question_id: str | None = None,
-        session_id: str | None = None,
-        retrieval_round: int = 0,
-    ) -> str:
-        ev_text = _format_evidence(evidence)
-        hint = ""
-        if wants_composite_strength_table(question):
-            hint = (
-                "\n\n【须分两段作答：①3.1 抗拉强度数值；"
-                "②4.2/表1 抽样检查项目与抗拉强度试验的关系。】"
-            )
-        elif wants_table_evidence(question):
-            hint = (
-                "\n\n【须写表1各行 AQL 数值，并说明键宽平行度(3.5)、"
-                "1:100斜度(3.6)的公差要求。】"
-            )
-        messages = [
-            {
-                "role": "system",
-                "content": (
+    def _system_prompt(self) -> str:
+        return (
                     "你是国标文档问答助手。仅根据给定证据回答，不要编造。\n"
                     "引用格式必须为 [p.页码] 或 [p.页码 条款3.1] 或 [p.页码 表1]，"
                     "禁止使用「证据1」等非标准格式。\n"
@@ -73,14 +52,84 @@ class Answerer:
                     "7) 勿轻易写「无法从本文档回答」；仅当问题与键标准完全无关（如蓝牙、手机加密）时才用拒答模板。\n"
                     "8) 问检验/验收/抽样时，须含「见表1」或 4.3 尺寸检查、4.4 抽检协议等要点，"
                     "与「检验规则」类问题表述可一致（抽样、合格质量水平、AQL）。"
-                ),
-            },
-            {
-                "role": "user",
-                "content": f"问题：{question}\n\n证据：\n{ev_text}{hint}",
-            },
+        )
+
+    def _hint_for_question(self, question: str) -> str:
+        if wants_composite_strength_table(question):
+            return (
+                "\n\n【须分两段作答：①3.1 抗拉强度数值；"
+                "②4.2/表1 抽样检查项目与抗拉强度试验的关系。】"
+            )
+        if wants_table_evidence(question):
+            return (
+                "\n\n【须写表1各行 AQL 数值，并说明键宽平行度(3.5)、"
+                "1:100斜度(3.6)的公差要求。】"
+            )
+        return ""
+
+    def _format_history(self, history: list[dict] | None) -> str:
+        if not history:
+            return ""
+        lines = ["【对话历史】"]
+        for m in history[-10:]:
+            role = m.get("role", "user")
+            label = "用户" if role == "user" else "助手"
+            content = (m.get("content") or "")[:800]
+            lines.append(f"{label}: {content}")
+        lines.append("")
+        return "\n".join(lines)
+
+    def build_generate_messages(
+        self,
+        question: str,
+        evidence: list[Evidence],
+        *,
+        history: list[dict] | None = None,
+    ) -> list[dict[str, str]]:
+        ev_text = _format_evidence(evidence)
+        hint = self._hint_for_question(question)
+        hist = self._format_history(history)
+        user_content = f"{hist}问题：{question}\n\n证据：\n{ev_text}{hint}"
+        return [
+            {"role": "system", "content": self._system_prompt()},
+            {"role": "user", "content": user_content},
         ]
+
+    def generate_draft(
+        self,
+        question: str,
+        evidence: list[Evidence],
+        *,
+        question_id: str | None = None,
+        session_id: str | None = None,
+        retrieval_round: int = 0,
+        history: list[dict] | None = None,
+    ) -> str:
+        messages = self.build_generate_messages(
+            question, evidence, history=history
+        )
         return self.ark.chat(
+            messages,
+            stage="generate",
+            question_id=question_id,
+            session_id=session_id,
+            retrieval_round=retrieval_round,
+        )
+
+    def generate_draft_stream(
+        self,
+        question: str,
+        evidence: list[Evidence],
+        *,
+        question_id: str | None = None,
+        session_id: str | None = None,
+        retrieval_round: int = 0,
+        history: list[dict] | None = None,
+    ) -> Iterator[str]:
+        messages = self.build_generate_messages(
+            question, evidence, history=history
+        )
+        yield from self.ark.chat_stream(
             messages,
             stage="generate",
             question_id=question_id,

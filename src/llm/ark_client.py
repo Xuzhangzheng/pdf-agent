@@ -4,14 +4,19 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Iterator
 
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 from src.config.settings import Settings, get_settings
 from src.observability.usage import log_usage
 
 logger = logging.getLogger(__name__)
+
+
+def _json_format_unsupported(err: BaseException) -> bool:
+    text = str(err).lower()
+    return "response_format" in text or "json_object" in text
 
 
 class ArkClient:
@@ -49,13 +54,26 @@ class ArkClient:
             "messages": messages,
             "temperature": temperature if temperature is not None else self.settings.ark_temperature,
         }
-        if json_mode:
+        use_json_format = json_mode and self.settings.ark_chat_json_mode
+        if use_json_format:
             kwargs["response_format"] = {"type": "json_object"}
 
         t0 = time.perf_counter()
-        resp = self.client.chat.completions.create(**kwargs)
+        try:
+            resp = self.client.chat.completions.create(**kwargs)
+        except BadRequestError as e:
+            if use_json_format and _json_format_unsupported(e):
+                logger.info(
+                    "Model %s does not support json_object; retrying without response_format",
+                    self.settings.ark_chat_model,
+                )
+                kwargs.pop("response_format", None)
+                resp = self.client.chat.completions.create(**kwargs)
+            else:
+                raise
         latency = int((time.perf_counter() - t0) * 1000)
         usage = resp.usage
+        content = resp.choices[0].message.content or ""
         log_usage(
             stage=stage,
             model=self.settings.ark_chat_model,
@@ -66,8 +84,55 @@ class ArkClient:
             question_id=question_id,
             retrieval_round=retrieval_round,
             session_id=session_id,
+            input={"messages": messages},
+            output={"content": content},
         )
-        return resp.choices[0].message.content or ""
+        return content
+
+    def chat_stream(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float | None = None,
+        stage: str = "generate",
+        question_id: str | None = None,
+        session_id: str | None = None,
+        retrieval_round: int = 0,
+    ) -> Iterator[str]:
+        if not self.settings.ark_api_key:
+            raise ValueError("ARK_API_KEY is required")
+
+        kwargs: dict[str, Any] = {
+            "model": self.settings.ark_chat_model,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else self.settings.ark_temperature,
+            "stream": True,
+        }
+
+        t0 = time.perf_counter()
+        stream = self.client.chat.completions.create(**kwargs)
+        parts: list[str] = []
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content if chunk.choices else None
+            if delta:
+                parts.append(delta)
+                yield delta
+        latency = int((time.perf_counter() - t0) * 1000)
+        full = "".join(parts)
+        log_usage(
+            stage=stage,
+            model=self.settings.ark_chat_model,
+            prompt_tokens=0,
+            completion_tokens=max(len(full) // 2, 1),
+            total_tokens=max(len(full) // 2, 1),
+            latency_ms=latency,
+            question_id=question_id,
+            session_id=session_id,
+            retrieval_round=retrieval_round,
+            extra={"stream_estimated_tokens": True},
+            input={"messages": messages},
+            output={"content": full},
+        )
 
     @staticmethod
     def _fix_invalid_json_escapes(text: str) -> str:
@@ -112,7 +177,7 @@ class ArkClient:
         return "".join(out)
 
     @classmethod
-    def parse_json(cls, text: str) -> dict[str, Any]:
+    def parse_json(cls, text: str) -> Any:
         text = text.strip()
         fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
         if fence:

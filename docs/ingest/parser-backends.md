@@ -1,114 +1,73 @@
-# PDF 解析后端（可切换）
+# PDF 解析后端（MinerU）
 
 > 实现：`src/pdf/parsers/factory.py` · 消费方：`src/pdf/structure.py`
 
-## 1. 后端一览
+## 1. 后端
 
 | `PDF_PARSER_BACKEND` | 说明 | 产物目录 |
 |----------------------|------|----------|
-| `mineru`（默认） | 方案 A：MinerU / magic-pdf OCR | `artifacts/mineru/` |
-| `docling` / `scheme_b` | 方案 B：Docling 版面+表格+正文 | `artifacts/docling/{pdf_stem}/` |
-| `fusion` / `dual` / `both` | **双通道**：MinerU + Docling 按条款合并 | `artifacts/parsed/fusion/` 报告 |
+| `mineru`（唯一） | MinerU / magic-pdf + PaddleOCR | `artifacts/mineru/` |
 
-两条路径在 **structure.py（S1–S6）→ 质量闸门 → 索引** 之后完全一致，仅 **L1 解析** 不同。
+`docling`、`fusion`、`scheme_b` 等值已在 2026-05 移除；若 `.env` 仍填写旧值，ingest 会报错并提示改为 `mineru`。
 
-### 双通道 fusion（推荐 OCR 仍不稳时）
+**入库正文**以 `artifacts/parsed/md_ingest/mineru/page_*.md` 为准（经 L2 后处理）。该目录在 `artifacts/` 下，**默认被 git 忽略**，本地用 `ls artifacts/parsed/md_ingest/mineru/` 或查看 `artifacts/parsed/doc.json` 中的 `md_ingest_dir` 确认。
 
-1. 并行跑 MinerU、Docling（复用各自缓存，除非 `*_FORCE_REPARSE=true`）。
-2. 每页按 **条款号** 合并：取更完整/质量更高的一行；仅单通道有的条款（如 MinerU 有 3.7、Docling 无）**交叉补入**。
-3. 两通道差异大的条款记入 `fusion_report.json` → `disagreements`。
-4. 可选 `OCR_VL_CORRECTION_ENABLED=true`：仅对 **有分歧或缺口** 的页，用方舟 **Responses API**（`doubao-seed-2-0-pro-260215`，`input_image` + `input_text`）对照原图校对（禁止臆造条文）。
+**豆包（ARK）不参与 PDF 正文识别**：解析仅 MinerU + 规则后处理；ARK 用于入库后的假设问句、在线问答与反思。可选 VL 校对见下文（当前默认未接入主流程）。
 
 ## 2. 环境变量
 
 ```bash
-# 切换解析器（默认 mineru）
 PDF_PARSER_BACKEND=mineru
-# PDF_PARSER_BACKEND=docling
-# PDF_PARSER_BACKEND=scheme_b   # 等同 docling
-# PDF_PARSER_BACKEND=fusion
 
-OCR_VL_CORRECTION_ENABLED=false
-ARK_VL_MODEL=doubao-seed-2-0-pro-260215
-
-# MinerU（方案 A）
 MINERU_OUTPUT_DIR=artifacts/mineru
 MINERU_MODEL_MODE=full
 MINERU_FORCE_REPARSE=false
 
-# Docling（方案 B）
-DOCLING_OUTPUT_DIR=artifacts/docling
-DOCLING_FORCE_REPARSE=false
-
-# 两方案共用
 OCR_POSTPROCESS_ENABLED=true
+
+# 可选：对低置信/缺口页做 VL 校对（对照页图，禁止臆造条文）
+OCR_VL_CORRECTION_ENABLED=false
+ARK_VL_MODEL=doubao-seed-2-0-pro-260215
 ```
 
-修改 `PDF_PARSER_BACKEND` 后执行 `python scripts/ingest.py` 重建索引。
+修改解析相关配置后执行 `python scripts/ingest.py --force-full` 重建索引。
 
 ## 3. 安装
 
-**方案 A（已有）**
+统一入口见 **[setup/environment.md](../setup/environment.md)**：
+
+```bash
+bash scripts/setup.sh              # 默认：requirements + MinerU + 尝试 Docker
+bash scripts/setup.sh minimal      # 仅 RAG 依赖（已有 artifacts）
+bash scripts/setup.sh services     # 仅 MongoDB + Langfuse
+```
+
+MinerU 单独修复（NumPy / Paddle / transformers 冲突时）：
 
 ```bash
 bash scripts/fix_mineru_env.sh
+# 仅补 OCR 小文件（大模型已存在时也会执行）：
+.venv/bin/python scripts/mineru_ocr_weights.py
 ```
 
-**方案 B（可选）**
+### 3.1 模型目录
 
-```bash
-bash scripts/install_docling.sh
-```
-
-Docling 体积较大，未安装时设置 `PDF_PARSER_BACKEND=docling` 会提示安装命令。
-
-**首次运行**需从 Hugging Face 下载版面模型（需可访问 `huggingface.co`，或配置镜像 `export HF_ENDPOINT=https://hf-mirror.com`）。模型缓存后可用 `DOCLING_FORCE_REPARSE=false` 复用 `artifacts/docling/{pdf_stem}/`。
-
-## 4. 为何 macOS 上 Docling 中文「全丢」、出现 Ж™# 乱码？
-
-日志里若出现：
-
-```text
-Auto OCR model selected ocrmac.
-```
-
-说明 Docling 在 **macOS 上自动选了 Apple Vision OCR（ocrmac）**。它面向系统 UI/英文为主，**不擅长国标扫描件里的密集中文**，会把汉字识成西里尔字母、符号、越南语片段等（如 `Ж™1#Д₺`、`bố xố`），看起来像「中文丢了」。
-
-| 对比 | MinerU（方案 A） | Docling 默认（mac auto） |
-|------|------------------|---------------------------|
-| OCR 引擎 | **PaddleOCR**（中文强） | **ocrmac**（中文弱） |
-| 版面/表格 | 中等 | 较强（但 OCR 差则表内也是乱码） |
-| 本 PDF 实测 | 中文可读，有错字 | 大量乱码、条款残缺 |
-
-**结论**：不是 Docling「版面能力」没用，而是 **OCR 引擎选错了**。国标 4 页扫描件在本项目里 **优先 `PDF_PARSER_BACKEND=mineru`**。
-
-## 5. Docling 中文扫描件推荐配置
-
-```bash
-PDF_PARSER_BACKEND=docling
-DOCLING_OCR_ENGINE=rapidocr    # 默认；与 Paddle 系，勿用 auto/ocrmac
-DOCLING_FORCE_REPARSE=true     # 换 OCR 引擎后必须重跑
-```
-
-可选：`DOCLING_OCR_ENGINE=easyocr`（需 `pip install easyocr`，语言 `ch_sim`）。
-
-首次 `rapidocr` 会下载模型；换引擎后旧 `artifacts/docling/` 缓存会自动失效。
-
-## 6. 选型建议
-
-| 场景 | 建议 |
+| 路径 | 说明 |
 |------|------|
-| 作业演示、已跑通 MinerU | 保持 `mineru` + OCR 后处理 |
-| 必须用 Docling | **`DOCLING_OCR_ENGINE=rapidocr`**，勿用默认 auto |
-| 表格结构实验 | Docling 表结构 + MinerU OCR 文本（二期融合） |
-| macOS 无法 MinerU full | `mineru` lite + 后处理，或 Docling+rapidocr 对比 |
+| `artifacts/mineru/models/` | `magic-pdf.json` 的 `models-dir`（含 `MFD/YOLO/yolo_v8_ft.pt` 等） |
+| `OCR/paddleocr_torch/ch_PP-OCRv3_det_infer.pth` | magic-pdf **必需**；Kit 全量下载可能漏此文件，需 `mineru_ocr_weights.py` 从 HF 固定 revision 补下 |
 
-## 7. 修订记录
+`~/magic-pdf.json` 由 `config/magic-pdf.json` 同步，需含 `layout-config.model=doclayout_yolo`（避免默认 layoutlmv3 / detectron2）。
+
+### 3.2 可选 VL 校对（豆包视觉）
+
+`src/pdf/vl_corrector.py` 已实现（`ARK_VL_MODEL` + `/responses` 多模态），但 **`structure.py` 尚未调用**；设 `OCR_VL_CORRECTION_ENABLED=true` 目前不会生效。主流程以 MinerU + `ocr_postprocess.py` 为准。
+
+## 4. 修订记录
 
 | 日期 | 说明 |
 |------|------|
-| 2026-05-22 | 初版：mineru / docling 可 env 切换 |
-| 2026-05-22 | 说明 ocrmac 乱码原因；默认 `DOCLING_OCR_ENGINE=rapidocr` |
-| 2026-05-22 | 新增 `fusion` 双通道 + 可选 ARK VL 按页校对 |
-| 2026-05-22 | VL 改为方舟 Responses API + `doubao-seed-2-0-pro-260215`；见 [architecture.md](../overview/architecture.md) |
-
+| 2026-05-22 | 初版：mineru / docling 可切换 |
+| 2026-05-22 | 新增 fusion 双通道 + 可选 VL |
+| 2026-05-26 | **移除 Docling / fusion**；全链路仅 MinerU |
+| 2026-05-27 | OCR v3 权重补下脚本；transformers 钉死；澄清 md_ingest 路径与 VL 未接线 |

@@ -10,21 +10,15 @@ from src.llm.ark_responses import ark_responses_create
 
 logger = logging.getLogger(__name__)
 
-_VL_PROMPT = """你是文档 OCR 校对助手。根据【扫描页图像】核对并合并下面两个 OCR 文本（通道 A / 通道 B）。
+_VL_PROMPT = """你是文档 OCR 校对助手。根据【扫描页图像】核对下面 MinerU OCR 草稿。
 
 要求：
 1. 只输出该页应有的 Markdown 正文，不要解释。
 2. 只转写图像中可见的文字，禁止添加图中不存在的内容、禁止用外部标准知识补全丢失条款。
-3. 保留条款编号（如 3.1、4.1.2）；若某条仅在一通道出现且与图像一致则保留。
+3. 保留条款编号（如 3.1、4.1.2）。
 4. 符号 ± 不要写成「土」；键宽字母 b 不要写成 6。
 
-【通道 A — MinerU】
-{mineru}
-
-【通道 B — Docling】
-{docling}
-
-【当前融合草稿】
+【MinerU OCR 草稿】
 {draft}
 """
 
@@ -66,8 +60,8 @@ class VlPageCorrector:
     def should_correct_page(
         self,
         *,
-        disagreements: list[str],
-        gaps: list[str],
+        gaps: list[str] | None = None,
+        low_confidence: bool = False,
         force: bool = False,
     ) -> bool:
         if not self.settings.ocr_vl_correction_enabled:
@@ -76,14 +70,12 @@ class VlPageCorrector:
             return False
         if force:
             return True
-        return bool(disagreements or gaps)
+        return bool(gaps) or low_confidence
 
     def correct_page(
         self,
         pdf_path: Path,
         page: int,
-        mineru_text: str,
-        docling_text: str,
         draft_text: str,
         *,
         session_id: str | None = None,
@@ -93,11 +85,7 @@ class VlPageCorrector:
         )
         b64 = base64.standard_b64encode(png).decode("ascii")
         image_url = f"data:image/png;base64,{b64}"
-        prompt = _VL_PROMPT.format(
-            mineru=mineru_text[:8000],
-            docling=docling_text[:8000],
-            draft=draft_text[:8000],
-        )
+        prompt = _VL_PROMPT.format(draft=draft_text[:12000])
         model = self.settings.ark_vl_model
         payload = build_vl_responses_input(image_data_url=image_url, prompt=prompt)
         out = ark_responses_create(

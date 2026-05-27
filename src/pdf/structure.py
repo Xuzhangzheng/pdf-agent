@@ -4,6 +4,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.agent.ingest_progress import (
+    ProgressCallback,
+    STEP_DETECT_PDF,
+    STEP_OCR_POSTPROCESS,
+    STEP_QUALITY,
+    STEP_STRUCTURE,
+    report_progress,
+)
 from src.config.settings import Settings, get_settings
 from src.models.blocks import Block, Chunk, DocManifest, stable_id
 from src.pdf.ocr_postprocess import (
@@ -222,7 +230,7 @@ def _export_postprocessed_markdown(
     settings: Settings,
     backend: str,
 ) -> Path:
-    """导出 ingest 实际使用的 Markdown（含 L2 后处理），便于与 docling 原始缓存对照。"""
+    """导出 ingest 实际使用的 Markdown（含 L2 后处理），便于与 MinerU 原始缓存对照。"""
     out_dir = settings.resolve_path(settings.parsed_output_dir) / "md_ingest" / backend
     out_dir.mkdir(parents=True, exist_ok=True)
     for page_num, md in page_mds:
@@ -403,35 +411,57 @@ def build_document(
     settings: Settings | None = None,
     *,
     session_id: str | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> DocManifest:
     settings = settings or get_settings()
     pdf = settings.resolve_path(pdf_path or settings.pdf_input_path)
     if not pdf.exists():
         raise IngestError(f"PDF not found: {pdf}")
 
+    report_progress(on_progress, STEP_DETECT_PDF, "start")
     detection = detect_pdf_type(pdf)
     page_count = detection.page_count
+    report_progress(
+        on_progress,
+        STEP_DETECT_PDF,
+        "done",
+        f"{page_count} 页, strategy={detection.strategy}",
+    )
 
     if not settings.mvp_force_scanned and detection.strategy == "pymupdf":
         raise IngestError(
             "MVP text-layer path not implemented; set MVP_FORCE_SCANNED=true "
-            "or use PDF_PARSER_BACKEND=mineru|docling for scanned PDF."
+            "or use PDF_PARSER_BACKEND=mineru for scanned PDF."
         )
 
     try:
         parse_out = run_pdf_parser(
-            pdf, page_count, settings, session_id=session_id
+            pdf,
+            page_count,
+            settings,
+            session_id=session_id,
+            on_progress=on_progress,
         )
     except ParserFactoryError as e:
         raise IngestError(str(e)) from e
 
+    if settings.ocr_postprocess_enabled:
+        report_progress(on_progress, STEP_OCR_POSTPROCESS, "start")
     page_mds, ocr_fix_count, clause_gaps, page_gaps = _postprocess_page_markdown(
         parse_out.page_mds, settings
     )
+    if settings.ocr_postprocess_enabled:
+        report_progress(
+            on_progress,
+            STEP_OCR_POSTPROCESS,
+            "done",
+            f"修复 {ocr_fix_count} 处",
+        )
     md_ingest_dir = _export_postprocessed_markdown(
         page_mds, settings, parse_out.backend
     )
 
+    report_progress(on_progress, STEP_STRUCTURE, "start")
     all_blocks: list[Block] = []
     section: str | None = None
     for page_num, md in page_mds:
@@ -445,9 +475,19 @@ def build_document(
             all_blocks, parse_out.md_root, page_count, settings
         )
     all_blocks = split_table_blocks(all_blocks)
+    report_progress(
+        on_progress,
+        STEP_STRUCTURE,
+        "done",
+        f"{len(all_blocks)} blocks",
+    )
+
+    report_progress(on_progress, STEP_QUALITY, "start")
     quality = run_quality_gates(all_blocks, page_count, settings)
     if not quality.passed:
+        report_progress(on_progress, STEP_QUALITY, "error", "; ".join(quality.errors))
         raise IngestError("Quality gates failed: " + "; ".join(quality.errors))
+    report_progress(on_progress, STEP_QUALITY, "done")
 
     qmeta = dict(quality.__dict__)
     qmeta["ocr_fix_count"] = ocr_fix_count

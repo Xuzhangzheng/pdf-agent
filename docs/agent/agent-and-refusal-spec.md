@@ -19,7 +19,7 @@ retrieve（RRF + rerank + pin 守卫）
 |------|------|
 | `retrieve` | 调用 `HybridRetriever`：稠密归并 + BM25 → RRF Top-12 → rerank Top-5 → `_pin_required_after_rerank`；`hard_refuse` 门禁 |
 | `generate` | `Answerer.generate_draft`，仅 evidence + `[p.N]` 引用 |
-| `reflect` | Self-Reflection JSON（`json_mode`） |
+| `reflect` | Self-Reflection JSON（`json_mode`；不支持 `json_object` 的 ARK 模型会自动回退，见 [ARK.md](../integrations/ARK.md)） |
 | `revise` | 按 critique 改稿 |
 | `rewrite_query` | ARK 改写 query；OCR 题可追加规范化条款号 |
 | `respond` / `refuse` | 终态；`respond` 解析引用并补全 citations |

@@ -15,6 +15,8 @@
 | `ARK_API_KEY`       | 火山方舟 API Key（Chat / 反思） |
 
 
+**勿混用**：Embedding 请求应走 `DASHSCOPE_BASE_URL`（默认阿里云 compatible-mode）。若误把 `DASHSCOPE_API_KEY` 指到方舟且 Key 带 IP 白名单，ingest 建索引阶段会报 `IP access denied by API-Key restriction`（Chat 可能仍 200）。
+
 其余项见 `.env.example` 注释；Embedding 相关默认值：
 
 ```bash
@@ -49,14 +51,14 @@ vectors = [d.embedding for d in resp.data]
 
 | 组件    | 技术                            |
 | ----- | ----------------------------- |
-| 稠密向量  | text-embedding-v4 → Chroma（**正文 + 预设问句** 双写，见下） |
+| 稠密向量  | text-embedding-v4 → FAISS（**正文 + 预设问句** 双写，见下） |
 | 关键词   | rank_bm25（**仅正文**，弥补 v4 无稀疏向量） |
 | 融合    | RRF（稠密命中按 `chunk_id` 归并） |
 | Top-K | 默认 12（`RETRIEVAL_TOP_K`） |
 
 ### 双稠密索引（默认开启）
 
-每个 chunk 除 `embed(chunk.text)` 外，ingest 时用 ARK 生成 `INDEX_QUESTIONS_PER_CHUNK` 条预设问句并 `embed(问句)`，一同写入同一 Chroma collection；`metadata.index_role` 为 `content` 或 `question`。在线检索扩大稠密池后归并到 chunk，**生成证据仍用正文**。
+每个 chunk 除 `embed(chunk.text)` 外，ingest 时用 ARK 生成 `INDEX_QUESTIONS_PER_CHUNK` 条预设问句并 `embed(问句)`，一同写入 `artifacts/faiss/`（`index.faiss` + `store.json`）；`metadata.index_role` 为 `content` 或 `question`。在线检索扩大稠密池后归并到 chunk，**生成证据仍用正文**。
 
 详见 [indexing-and-retrieval.md](./indexing-and-retrieval.md)、[architecture.md](../overview/architecture.md)。
 

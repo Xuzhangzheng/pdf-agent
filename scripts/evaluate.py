@@ -19,7 +19,7 @@ from src.config.settings import get_settings
 from src.evaluation.llm_judge import LlmJudge
 from src.evaluation.models import DemoQuestionBank
 from src.models.agent import Evidence
-from src.observability.usage import summarize_usage
+from src.observability.usage import flush_langfuse, summarize_usage
 from src.retrieval.retriever import HybridRetriever
 
 logging.basicConfig(
@@ -301,6 +301,7 @@ def run_evaluation(skip_llm_judge: bool = False) -> dict:
     out = settings.resolve_path("artifacts/eval_report.json")
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    flush_langfuse()
     return report
 
 

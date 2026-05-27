@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Callable
 
 from openai import OpenAI
 
@@ -19,13 +20,26 @@ class DashScopeEmbedder:
             base_url=self.settings.dashscope_base_url,
         )
 
-    def embed_texts(self, texts: list[str], session_id: str | None = None) -> list[list[float]]:
+    def embed_texts(
+        self,
+        texts: list[str],
+        session_id: str | None = None,
+        *,
+        on_batch_progress: Callable[[int, int], None] | None = None,
+    ) -> list[list[float]]:
         if not self.settings.dashscope_api_key:
             raise ValueError("DASHSCOPE_API_KEY is required for embedding")
 
         batch_size = self.settings.embedding_batch_size
+        total_batches = (
+            (len(texts) + batch_size - 1) // batch_size if texts else 0
+        )
         all_vectors: list[list[float]] = []
+        batch_idx = 0
         for i in range(0, len(texts), batch_size):
+            batch_idx += 1
+            if on_batch_progress is not None:
+                on_batch_progress(batch_idx, total_batches)
             batch = texts[i : i + batch_size]
             t0 = time.perf_counter()
             resp = self.client.embeddings.create(
@@ -44,6 +58,12 @@ class DashScopeEmbedder:
                 total_tokens=total_tokens,
                 latency_ms=latency,
                 session_id=session_id,
+                input={
+                    "batch_start": i,
+                    "text_count": len(batch),
+                    "text_previews": [t[:300] for t in batch[:3]],
+                },
+                output={"embedding_count": len(resp.data)},
             )
             ordered = sorted(resp.data, key=lambda d: d.index)
             all_vectors.extend([d.embedding for d in ordered])

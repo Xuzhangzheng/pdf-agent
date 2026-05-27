@@ -12,7 +12,7 @@ pymupdf>=1.24.0
 # MinerU: pip install "magic-pdf[cpu]"  (see scripts/setup_env.sh)
 
 # Indexing & retrieval
-chromadb>=0.4.22
+faiss-cpu>=1.7.4
 rank-bm25>=0.2.2
 jieba>=0.42.1
 
@@ -20,12 +20,18 @@ jieba>=0.42.1
 openai>=1.30.0
 langgraph>=0.2.0
 langchain-core>=0.3.0
+langfuse>=3.0.0,<5.0.0
 
 # Rerank fallback (optional)
 # sentence-transformers>=2.7.0
 
 # UI
 streamlit>=1.35.0
+
+# Chat API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pymongo>=4.8.0
 
 # Dev / CI
 pytest>=7.4.0

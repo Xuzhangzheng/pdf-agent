@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Callable
 
 from src.config.settings import Settings, get_settings
 from src.llm.ark_client import ArkClient
@@ -59,6 +60,7 @@ def generate_questions_for_chunks(
     settings: Settings | None = None,
     session_id: str | None = None,
     force_regenerate: bool = False,
+    on_chunk_progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, list[str]]:
     """为每个 chunk 生成预设问句；返回 chunk_id -> questions。"""
     settings = settings or get_settings()
@@ -74,7 +76,10 @@ def generate_questions_for_chunks(
 
     ark = ArkClient(settings)
     out: dict[str, list[str]] = {}
-    for c in chunks:
+    total = len(chunks)
+    for idx, c in enumerate(chunks, start=1):
+        if on_chunk_progress is not None:
+            on_chunk_progress(idx, total)
         snippet = (c.text or "").strip()[:2000]
         if not snippet:
             out[c.chunk_id] = []

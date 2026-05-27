@@ -1,4 +1,5 @@
 .env
+deploy/langfuse/.env
 .venv/
 __pycache__/
 *.py[cod]

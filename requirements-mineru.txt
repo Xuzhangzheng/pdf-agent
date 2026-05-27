@@ -1,5 +1,7 @@
-# MinerU / PaddleOCR 依赖（必须在 numpy 1.x 下安装）
-# 安装顺序见 scripts/fix_mineru_env.sh
+# MinerU / magic-pdf 额外约束（由 scripts/fix_mineru_env.sh 安装）
+# magic-pdf 1.3.12 要求 transformers>=4.49,<5，但 4.54+ 与 UniMERNet 不兼容
+transformers==4.52.4
+tokenizers==0.21.1
 numpy==1.26.4
-opencv-python-headless==4.6.0.66
-magic-pdf[cpu]>=0.6.0
+opencv-python-headless==4.10.0.84
+pycocotools>=2.0.6

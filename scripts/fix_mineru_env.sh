@@ -1,49 +1,67 @@
 #!/usr/bin/env bash
-# 修复 MinerU/Paddle 与 NumPy 2.x 冲突（macOS 常见）
+# MinerU (magic-pdf) + PaddleOCR；锁定 NumPy 1.x，避免与 Paddle/Docling 冲突
+# 要求：Python 3.10+（magic-pdf 1.3+ 使用 3.10 类型语法）
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 if [[ ! -d .venv ]]; then
-  echo "请先创建虚拟环境: python3 -m venv .venv"
+  echo "请先创建虚拟环境: bash scripts/setup.sh" >&2
   exit 1
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-echo "==> 1/6 卸载会拉高 NumPy 2.x 的 OpenCV"
+python -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || {
+  echo "错误: MinerU 需要 Python 3.10+，当前: $(python --version)" >&2
+  echo "请删除 .venv 后执行: bash scripts/setup.sh" >&2
+  exit 1
+}
+
+pin_mineru_runtime() {
+  # 避免 pip 依赖解析把 numpy 升到 2.x、transformers 升到 4.56+（公式识别会静默失败）
+  pip uninstall -y opencv-python opencv-contrib-python 2>/dev/null || true
+  pip install -r requirements-mineru.txt --no-deps --force-reinstall
+  pip install "pycocotools>=2.0.6"
+}
+
+echo "==> 1/7 准备 pip / 卸载冲突 OpenCV"
 pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python 2>/dev/null || true
-
-echo "==> 2/6 锁定 NumPy 1.26.x"
 pip install -U pip
-pip install "numpy==1.26.4" --force-reinstall
 
-echo "==> 3/6 安装与 Paddle 匹配的 OpenCV（不拉取依赖，避免升级 NumPy）"
-pip install "opencv-python-headless==4.6.0.66" --no-deps --force-reinstall
-
-echo "==> 4/6 安装项目基础依赖（保持 numpy 1.x）"
+echo "==> 2/7 安装项目基础依赖"
 pip install -r requirements.txt
-pip install "numpy==1.26.4" --force-reinstall
+pin_mineru_runtime
 
-echo "==> 5/6 安装 MinerU CPU（macOS ARM 通常无法装 detectron2，full 会自动回退 lite）"
-pip install "magic-pdf[cpu]>=0.6.0"
-pip install "numpy==1.26.4" --force-reinstall
-pip install "opencv-python-headless==4.6.0.66" --no-deps --force-reinstall
-# Linux x86_64 若需 full：pip install "magic-pdf[full-cpu]" detectron2 --extra-index-url https://myhloli.github.io/wheels/
+echo "==> 3/7 安装 magic-pdf（含 full 依赖）"
+# 1.3.x CLI: magic-pdf -p PDF -o OUT -m ocr
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  pip install "magic-pdf[full_old_linux]>=1.2.0"
+else
+  pip install "magic-pdf[full]>=1.2.0"
+fi
+pin_mineru_runtime
 
-echo "==> 6/6 验证"
+echo "==> 4/7 安装 PaddlePaddle + PaddleOCR"
+if ! pip install "paddlepaddle==2.6.2" 2>/dev/null; then
+  echo "    尝试 Paddle 官方源..."
+  pip install paddlepaddle==2.6.2 -i https://www.paddlepaddle.org.cn/packages/stable/cpu/
+fi
+pip install "paddleocr>=2.7,<3.0" --no-deps
+pip install shapely pyclipper lmdb tqdm Pillow pyyaml python-dateutil attrdict fire
+pin_mineru_runtime
+
+echo "==> 5/7 下载 MinerU 模型（若尚未存在 yolo_v8_ft.pt）"
+MARKER="$ROOT/artifacts/mineru/models/MFD/YOLO/yolo_v8_ft.pt"
+if [[ ! -f "$MARKER" ]]; then
+  bash "$ROOT/scripts/download_mineru_models.sh"
+else
+  echo "    已存在大模型，仍检查 OCR 小文件是否完整"
+  .venv/bin/python "$ROOT/scripts/mineru_ocr_weights.py"
+fi
+
+echo "==> 6/7 同步 magic-pdf.json"
 python - <<'PY'
-import numpy as np
-assert np.__version__.startswith("1."), f"numpy must be 1.x, got {np.__version__}"
-print("numpy", np.__version__)
-import cv2
-print("cv2", cv2.__version__)
-from paddleocr import PPStructure
-print("paddleocr OK")
-PY
-
-if [[ ! -f "$HOME/magic-pdf.json" ]]; then
-  python3 - <<'PY'
 import json
 from pathlib import Path
 root = Path(".").resolve()
@@ -53,11 +71,62 @@ for k in ("temp-output-dir", "models-dir"):
     if not p.is_absolute():
         cfg[k] = str((root / p).resolve())
 Path.home().joinpath("magic-pdf.json").write_text(json.dumps(cfg, indent=2))
-print("已创建 ~/magic-pdf.json")
+print("已同步 ~/magic-pdf.json")
 PY
-fi
+
+echo "==> 7/7 验证（依赖版本 + magic-pdf 试跑一页）"
+python - <<'PY'
+import sys
+import subprocess
+from pathlib import Path
+
+import numpy as np
+
+assert sys.version_info >= (3, 10), sys.version
+assert np.__version__.startswith("1.26."), np.__version__
+import cv2
+import transformers
+
+print("python", sys.version.split()[0])
+print("numpy", np.__version__)
+print("cv2", cv2.__version__)
+print("transformers", transformers.__version__)
+if transformers.__version__ >= "4.54":
+    raise SystemExit(
+        "transformers>=4.54 会导致公式识别失败且 magic-pdf 仍 exit 0；"
+        "请执行: pip install -r requirements-mineru.txt --no-deps --force-reinstall"
+    )
+
+from paddleocr import PaddleOCR  # noqa: F401
+
+print("paddleocr OK")
+
+root = Path(".").resolve()
+pdf = root / "pdf" / "GBT 1568-2008 键 技术条件.pdf"
+if not pdf.is_file():
+    raise SystemExit(f"缺少试跑 PDF: {pdf}")
+out = root / "artifacts" / "mineru" / ".fix_mineru_smoke"
+if out.exists():
+    import shutil
+    shutil.rmtree(out)
+out.mkdir(parents=True)
+proc = subprocess.run(
+    ["magic-pdf", "-p", str(pdf), "-o", str(out), "-m", "ocr"],
+    capture_output=True,
+    text=True,
+    timeout=600,
+)
+log = (proc.stdout or "") + (proc.stderr or "")
+mds = list(out.rglob("*.md"))
+if proc.returncode != 0 or not mds:
+  tail = "\n".join(log.strip().splitlines()[-15:])
+  raise SystemExit(
+      f"magic-pdf 试跑未产出 Markdown（code={proc.returncode}）。\n"
+      f"日志末尾:\n{tail}"
+  )
+print("magic-pdf smoke OK:", mds[0])
+PY
 
 echo ""
-echo "环境修复完成。请执行："
-echo "  python scripts/run_mineru_poc.py"
-echo "  python scripts/ingest.py"
+echo "MinerU 环境就绪。验证: .venv/bin/python scripts/run_mineru_poc.py"
+echo "完整入库: .venv/bin/python scripts/ingest.py --force-full"

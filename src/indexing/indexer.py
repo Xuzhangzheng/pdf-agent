@@ -5,16 +5,22 @@ import logging
 import pickle
 from pathlib import Path
 
-import chromadb
-from chromadb.config import Settings as ChromaSettings
-
+from src.agent.ingest_progress import (
+    ProgressCallback,
+    STEP_BM25,
+    STEP_EMBED,
+    STEP_FAISS,
+    STEP_QUESTIONS,
+    report_progress,
+)
 from src.config.settings import Settings, get_settings
 from src.indexing.dual_dense import (
     INDEX_ROLE_CONTENT,
     INDEX_ROLE_QUESTION,
-    chroma_row_id_for_question,
+    dense_row_id_for_question,
 )
 from src.indexing.embedder import DashScopeEmbedder
+from src.indexing.faiss_store import FaissVectorStore, INDEX_FILENAME, STORE_FILENAME
 from src.indexing.question_generator import generate_questions_for_chunks
 from src.models.blocks import Chunk, DocManifest
 
@@ -49,7 +55,16 @@ class DocumentIndexer:
             "index_role": index_role,
         }
 
-    def build_index(self, manifest: DocManifest, session_id: str | None = None) -> dict:
+    def _faiss_dir(self) -> Path:
+        return self.settings.resolve_path(self.settings.faiss_index_dir)
+
+    def build_index(
+        self,
+        manifest: DocManifest,
+        session_id: str | None = None,
+        *,
+        on_progress: ProgressCallback | None = None,
+    ) -> dict:
         chunks = manifest.chunks
         ids: list[str] = []
         texts: list[str] = []
@@ -63,50 +78,73 @@ class DocumentIndexer:
         question_map: dict[str, list[str]] = {}
         question_rows = 0
         if self.settings.index_hypothetical_questions:
+            report_progress(on_progress, STEP_QUESTIONS, "start")
             question_map = generate_questions_for_chunks(
                 chunks,
                 settings=self.settings,
                 session_id=session_id,
                 force_regenerate=self.settings.index_questions_force_regenerate,
+                on_chunk_progress=lambda cur, total: report_progress(
+                    on_progress,
+                    STEP_QUESTIONS,
+                    "start",
+                    f"{cur}/{total}",
+                ),
             )
             for c in chunks:
                 for i, q in enumerate(question_map.get(c.chunk_id, [])):
-                    ids.append(chroma_row_id_for_question(c.chunk_id, i))
+                    ids.append(dense_row_id_for_question(c.chunk_id, i))
                     texts.append(q)
                     meta = self._chunk_metadata(c, index_role=INDEX_ROLE_QUESTION)
                     metadatas.append(meta)
                     question_rows += 1
+            report_progress(
+                on_progress,
+                STEP_QUESTIONS,
+                "done",
+                f"{question_rows} 条问句向量",
+            )
 
-        vectors = self.embedder.embed_texts(texts, session_id=session_id)
+        report_progress(on_progress, STEP_EMBED, "start")
+        vectors = self.embedder.embed_texts(
+            texts,
+            session_id=session_id,
+            on_batch_progress=lambda cur, total: report_progress(
+                on_progress,
+                STEP_EMBED,
+                "start",
+                f"batch {cur}/{total}",
+            ),
+        )
+        report_progress(
+            on_progress,
+            STEP_EMBED,
+            "done",
+            f"{len(vectors)} 条向量",
+        )
 
-        chroma_dir = self.settings.resolve_path(self.settings.chroma_persist_dir)
-        chroma_dir.mkdir(parents=True, exist_ok=True)
-        client = chromadb.PersistentClient(
-            path=str(chroma_dir),
-            settings=ChromaSettings(anonymized_telemetry=False),
-        )
-        try:
-            client.delete_collection(self.collection_name)
-        except Exception:
-            pass
-        collection = client.create_collection(
-            name=self.collection_name,
-            metadata={"hnsw:space": "cosine"},
-        )
-        collection.add(
+        faiss_dir = self._faiss_dir()
+        report_progress(on_progress, STEP_FAISS, "start")
+        FaissVectorStore.build(
             ids=ids,
             embeddings=vectors,
             documents=texts,
             metadatas=metadatas,
+            index_dir=faiss_dir,
         )
+        report_progress(on_progress, STEP_FAISS, "done", str(faiss_dir))
 
+        report_progress(on_progress, STEP_BM25, "start")
         bm25_path = self._build_bm25(chunks)
+        report_progress(on_progress, STEP_BM25, "done", str(bm25_path))
         meta = {
             "chunk_count": len(chunks),
-            "chroma_row_count": len(ids),
+            "vector_row_count": len(ids),
             "question_vector_count": question_rows,
             "dual_dense_enabled": self.settings.index_hypothetical_questions,
-            "chroma_dir": str(chroma_dir),
+            "faiss_dir": str(faiss_dir),
+            "faiss_index_file": str(faiss_dir / INDEX_FILENAME),
+            "store_file": str(faiss_dir / STORE_FILENAME),
             "bm25_path": str(bm25_path),
             "collection": self.collection_name,
             "questions_cache": str(
@@ -114,10 +152,10 @@ class DocumentIndexer:
                 / "hypothetical_questions.json"
             ),
         }
-        meta_path = chroma_dir / "index_meta.json"
+        meta_path = faiss_dir / "index_meta.json"
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
         logger.info(
-            "Index built: %d chunks, %d chroma rows (%d question vectors)",
+            "Index built: %d chunks, %d FAISS rows (%d question vectors)",
             len(chunks),
             len(ids),
             question_rows,
@@ -147,10 +185,5 @@ class DocumentIndexer:
         chunks = [Chunk.model_validate(c) for c in payload["chunks"]]
         return payload["bm25"], chunks
 
-    def get_collection(self):
-        chroma_dir = self.settings.resolve_path(self.settings.chroma_persist_dir)
-        client = chromadb.PersistentClient(
-            path=str(chroma_dir),
-            settings=ChromaSettings(anonymized_telemetry=False),
-        )
-        return client.get_collection(self.collection_name)
+    def load_dense_index(self) -> FaissVectorStore:
+        return FaissVectorStore.load(self._faiss_dir())

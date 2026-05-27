@@ -1,11 +1,12 @@
 # Token 与成本记录规范（Usage & Cost Spec）
 
-> 实现：`src/observability/usage.py`。  
-> **出处**：作业 §五-6 工程交付；用户明确要求可审计 Token。
+> 实现：`src/observability/langfuse_telemetry.py`（主）、`src/observability/usage.py`（兼容别名）  
+> **存储**：Langfuse 自托管（见 [LANGFUSE.md](../integrations/LANGFUSE.md)）  
+> **已弃用**：`artifacts/usage/{session_id}.jsonl`
 
 ## 1. 记录时机
 
-每次以下调用 **append 一行 JSONL**：
+每次以下调用写入 Langfuse **Generation**：
 
 | stage | model 示例 | 触发点 |
 |-------|------------|--------|
@@ -17,61 +18,50 @@
 | `revise` | ARK chat | revise 节点 |
 | `rewrite_query` | ARK chat | re_retrieve 改写 |
 | `llm_judge` | ARK chat | evaluate.py |
+| `ocr_vl_correct` | ARK VL | 可选 VL（`vl_corrector.py` 未接入 ingest，通常无此 Generation） |
 
-## 2. JSONL 行 Schema
+## 2. 关联 ID
 
-```json
-{
-  "ts": "2026-05-21T12:00:00+08:00",
-  "stage": "reflect",
-  "model": "doubao-1-5-lite-32k-250115",
-  "prompt_tokens": 1200,
-  "completion_tokens": 80,
-  "total_tokens": 1280,
-  "latency_ms": 890,
-  "question_id": "q03_table",
-  "retrieval_round": 1,
-  "session_id": "uuid"
-}
-```
+- `ask()`：`session_id` = Langfuse **trace_id**  
+- `evaluate.py`：每题 `session_id`；批次可用 `eval-{run_id}` 作汇总查询  
 
-- `ask()`：`session_id` 单次问答
-- `evaluate.py`：可复用 `session_id=eval-{run_id}`
-
-## 3. 存储路径
+## 3. 环境变量
 
 ```bash
-USAGE_LOG_DIR=artifacts/usage
-LOG_TOKEN_USAGE=true
+LANGFUSE_ENABLED=true
+LANGFUSE_HOST=http://localhost:3000
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
 ```
 
-文件：`artifacts/usage/{session_id}.jsonl`  
-汇总：`evaluate.py` → `eval_report.cost_summary`：
+部署：`bash scripts/start_langfuse.sh`
+
+## 4. 汇总（`evaluate.py` → `cost_summary`）
+
+`scripts/evaluate.py` 调用 `summarize_usage(session_ids)`，内部请求 Langfuse Public API 按 trace 聚合：
 
 ```json
 {
   "total_tokens": 0,
-  "by_stage": { "embed": 0, "generate": 0 },
+  "by_stage": { "generate": 0, "reflect": 0 },
   "by_model": {},
-  "estimated_cost_cny": null
+  "estimated_cost_cny": null,
+  "backend": "langfuse",
+  "langfuse_host": "http://localhost:3000",
+  "trace_ids": ["uuid", "eval-..."]
 }
 ```
 
-`estimated_cost_cny`：README 可选配置单价；**不绑定商业报价**。
+未配置 Langfuse 时：`backend: "disabled"`，指标为 0。
 
-## 4. Streamlit 展示
+## 5. 与作业审计的关系
 
-- 单次问答：本轮 `total_tokens`、分 stage 条形或表
-- 评测页：链接最近一次 `eval_report.cost_summary`
+- 评委可在本机启动 Langfuse，复现后于 UI 查看全链路 Token 与节点耗时  
+- 不再依赖提交 `artifacts/usage/` 目录（已在 `.gitignore`）
 
-## 5. 预期效果
+## 修订
 
-- 定位成本瓶颈（ingest embed vs 多轮 reflect）
-- 演示材料可展示「8 问 + ingest」总 Token
-- 客户交付场景可导出审计日志
-
-## 6. 修订记录
-
-| 日期 | 版本 | 说明 |
-|------|------|------|
-| 2026-05-21 | v1.0 | 计划确认后初版 |
+| 日期 | 说明 |
+|------|------|
+| 2026-05-21 | 初版 JSONL |
+| 2026-05-26 | 迁移至 Langfuse，弃用 JSONL |

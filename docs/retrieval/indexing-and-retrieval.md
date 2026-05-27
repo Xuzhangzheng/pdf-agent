@@ -19,7 +19,7 @@
 
 ### 1.2 元数据
 
-每个 Chunk 携带：`page`、`chunk_type`、`clause_id`、`table_id`、`section_title`、`confidence`，写入 Chroma/BM25 与 `doc.json`。
+每个 Chunk 携带：`page`、`chunk_type`、`clause_id`、`table_id`、`section_title`、`confidence`，写入 FAISS/BM25 与 `doc.json`。
 
 ### 1.3 表块
 
@@ -44,19 +44,25 @@ doc.json chunks
   → generate_questions_for_chunks()  [ARK, JSON 数组]
   → 缓存 hypothetical_questions.json
   → embed(正文_1..N, 问句_1..M)
-  → Chroma collection.add(所有行)
+  → FaissVectorStore.build → artifacts/faiss/
 ```
 
-| Chroma 字段 | 正文行 | 问句行 |
-|-------------|--------|--------|
+| 字段 | 正文行 | 问句行 |
+|------|--------|--------|
 | `id` | `chunk_id` | `{chunk_id}#q0` |
 | `document` | 条款/表正文 | 预设问题文本 |
 | `metadata.index_role` | `content` | `question` |
 | `metadata.chunk_id` | `chunk_id` | `chunk_id` |
 
+持久化文件：
+
+- `index.faiss` — 向量（IndexFlatIP + L2 归一化，等价 cosine）
+- `store.json` — 与向量行对齐的 id / document / metadata
+- `index_meta.json` — 索引元信息
+
 ### 2.3 在线稠密召回
 
-1. `query_embeddings` 查询 `n_results = RETRIEVAL_TOP_K * RETRIEVAL_DENSE_POOL_FACTOR`（上限为 collection 行数）  
+1. `FaissVectorStore.search` 取 `k = RETRIEVAL_TOP_K * RETRIEVAL_DENSE_POOL_FACTOR`（上限为向量行数）  
 2. 将命中行按 `chunk_id` **归并**：同一 chunk 多条命中取**最优名次 / 最高分**  
 3. 与 BM25（chunk_id）做 **RRF**  
 4. **Rerank / 生成** 只使用 `doc.json` 中的 **chunk 正文**，不使用问句文本作证据  
@@ -65,6 +71,7 @@ doc.json chunks
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
+| `FAISS_INDEX_DIR` | `artifacts/faiss` | 稠密索引目录（兼容旧名 `CHROMA_PERSIST_DIR`） |
 | `INDEX_HYPOTHETICAL_QUESTIONS` | `true` | 是否生成问句向量 |
 | `INDEX_QUESTIONS_PER_CHUNK` | `2` | 每 chunk 问句数 |
 | `INDEX_QUESTIONS_FORCE_REGENERATE` | `false` | 忽略缓存重生成 |
@@ -82,7 +89,7 @@ doc.json chunks
 
 | 路 | 技术 | 粒度 |
 |----|------|------|
-| 稠密 | Chroma cosine | 归并后的 `chunk_id` |
+| 稠密 | FAISS cosine（IndexFlatIP） | 归并后的 `chunk_id` |
 | 稀疏 | jieba + BM25Okapi | `chunk_id` |
 | 融合 | RRF，`RRF_K=60` | Top `RETRIEVAL_TOP_K`（默认 12） |
 | 精排 | qwen3-rerank | Top `RERANK_TOP_N`（默认 5） |
@@ -108,7 +115,7 @@ doc.json chunks
 
 ## 5. 与 Embedding 文档关系
 
-向量模型与批量限制见 [EMBEDDING.md](./EMBEDDING.md)。双稠密不改变 embedding 模型，只增加 Chroma 行数（约 `chunks × (1 + questions_per_chunk)`）。
+向量模型与批量限制见 [EMBEDDING.md](./EMBEDDING.md)。双稠密不改变 embedding 模型，只增加 FAISS 行数（约 `chunks × (1 + questions_per_chunk)`）。
 
 ## 6. 修订记录
 
@@ -116,3 +123,4 @@ doc.json chunks
 |------|------|
 | 2026-05-22 | 初版：结构分块 + 正文/问句双稠密 + RRF 归并 |
 | 2026-05-26 | 增补检索守卫、metadata boost、hard_refuse 例外 |
+| 2026-05-26 | 稠密存储 Chroma → FAISS（`artifacts/faiss/`） |

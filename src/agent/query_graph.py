@@ -354,6 +354,8 @@ def run_query(
     question_id: str | None = None,
     session_id: str | None = None,
 ) -> AgentState:
+    from src.observability.langfuse_telemetry import query_trace_context
+
     app = build_query_graph()
     sid = session_id or str(uuid.uuid4())
     init: AgentState = {
@@ -366,4 +368,9 @@ def run_query(
         "reflection_notes": [],
         "evidence": [],
     }
-    return app.invoke(init)
+    with query_trace_context(
+        session_id=sid,
+        question=question,
+        question_id=question_id,
+    ):
+        return app.invoke(init)

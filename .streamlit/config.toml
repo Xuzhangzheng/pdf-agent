@@ -1,0 +1,3 @@
+[client]
+# 隐藏工具栏中的 Clear cache / Rerun 等开发项（快捷键 C 仍可能生效，见 app/ui_shortcuts.py）
+toolbarMode = "viewer"

@@ -17,12 +17,12 @@ source .venv/bin/activate
 .venv/bin/python scripts/evaluate.py
 ```
 
-推荐 ingest：`PDF_PARSER_BACKEND=fusion`，`INDEX_HYPOTHETICAL_QUESTIONS=true`。
+推荐 ingest：`PDF_PARSER_BACKEND=mineru`，`INDEX_HYPOTHETICAL_QUESTIONS=true`。MinerU 环境：`bash scripts/fix_mineru_env.sh`；排障见 `docs/setup/environment.md` §5。
 
 ## 关键代码
 
 - 解析/分块：`src/pdf/`、`scripts/ingest.py`
-- 检索：`src/retrieval/retriever.py`、`query_signals.py`
+- 索引/检索：`src/indexing/faiss_store.py`、`indexer.py`；`src/retrieval/retriever.py`、`query_signals.py`
 - Agent：`src/agent/query_graph.py`
 - 评测：`scripts/evaluate.py`、`scripts/demo_questions.json`
 

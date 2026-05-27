@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,27 +36,25 @@ class Settings(BaseSettings):
     ark_api_key: str = ""
     ark_base_url: str = "https://ark.cn-beijing.volces.com/api/v3"
     ark_chat_model: str = "doubao-1-5-lite-32k-250115"
+    # 部分豆包模型不支持 response_format=json_object，可设 false 或依赖 ArkClient 自动回退
+    ark_chat_json_mode: bool = True
     ark_temperature: float = 0.1
 
     pdf_input_path: str = "pdf/GBT 1568-2008 键 技术条件.pdf"
     parsed_output_dir: str = "artifacts/parsed"
-    chroma_persist_dir: str = "artifacts/chroma"
+    faiss_index_dir: str = Field(
+        default="artifacts/faiss",
+        validation_alias=AliasChoices("FAISS_INDEX_DIR", "CHROMA_PERSIST_DIR"),
+    )
     bm25_index_path: str = "artifacts/bm25_index.pkl"
     mineru_output_dir: str = "artifacts/mineru"
     mineru_bin: str = ""
     mineru_model_mode: str = "full"
     mineru_force_reparse: bool = False
     ocr_postprocess_enabled: bool = True
-    # Docling：渲染页图放大倍数，扫描件建议 1.5~2.0，利于 OCR 少漏行
-    docling_images_scale: float = 2.0
-    # mineru（默认）| docling | scheme_b（方案 B，同 docling）
+    # 扫描件解析：仅 MinerU（magic-pdf + PaddleOCR）
     pdf_parser_backend: str = "mineru"
-    docling_output_dir: str = "artifacts/docling"
-    docling_force_reparse: bool = False
-    # macOS 默认 auto 会选 ocrmac，扫描中文极差；国标扫描件请用 rapidocr
-    docling_ocr_engine: str = "rapidocr"
-    docling_bitmap_area_threshold: float = 0.02
-    # fusion：MinerU + Docling 双通道按条款合并；VL 仅校对分歧/缺口页
+    # 可选：对 MinerU 缺口/低置信页做 VL 校对（非臆造补全）
     ocr_vl_correction_enabled: bool = False
     ark_vl_model: str = "doubao-seed-2-0-pro-260215"
     ocr_vl_render_scale: float = 2.0
@@ -71,7 +69,7 @@ class Settings(BaseSettings):
     index_questions_force_regenerate: bool = False
 
     retrieval_top_k: int = 12
-    # 稠密召回池：Chroma 行数含问句向量，需扩大再按 chunk_id 归并
+    # 稠密召回池：FAISS 行数含问句向量，需扩大再按 chunk_id 归并
     retrieval_dense_pool_factor: int = 3
     # 问句含条款号/表意图时，对 metadata 匹配的 chunk 提高 RRF 分
     retrieval_metadata_boost: float = 0.12
@@ -92,10 +90,27 @@ class Settings(BaseSettings):
     eval_pass_strict: bool = True
     clause_hit_threshold: float = 0.8
 
+    # Langfuse 自托管观测（替代 artifacts/usage/*.jsonl）
+    langfuse_enabled: bool = True
+    langfuse_host: str = "http://localhost:3000"
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_log_io: bool = True
+    langfuse_io_max_chars: int = 4000
+
+    # 已弃用：仅保留字段兼容旧 .env，不再写入 JSONL
     usage_log_dir: str = "artifacts/usage"
     log_token_usage: bool = True
     log_level: str = "INFO"
     streamlit_server_port: int = 8501
+
+    # Chat API + MongoDB
+    api_base_url: str = "http://127.0.0.1:8000"
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+    mongodb_uri: str = "mongodb://localhost:27017"
+    mongodb_db: str = "pdf_agent"
+    chat_history_turns: int = 5
 
     @property
     def project_root(self) -> Path:

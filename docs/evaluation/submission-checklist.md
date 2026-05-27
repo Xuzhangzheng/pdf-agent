@@ -3,6 +3,12 @@
 文档入口：[docs/README.md](../README.md)。  
 对照 [homework-original-requirements.md](../reference/homework-original-requirements.md) §四、§五 与 [evaluation-spec.md](./evaluation-spec.md)。
 
+## 演示材料（§四-3）
+
+- **分镜与截图清单**：[demo-recording-guide.md](./demo-recording-guide.md)
+- **材料目录**：[docs/demo/README.md](../demo/README.md)
+- **评测文字证明**：运行 `python3 scripts/export_eval_proof.py` → [docs/demo/eval-proof.md](../demo/eval-proof.md)
+
 ## 演示五题（录屏推荐）
 
 | 题号 | 能力点 |
@@ -39,19 +45,18 @@ source .venv/bin/activate
 
 开发期可 `--skip-llm-judge` 快速看检索；终验须带 Judge。未达标时优先重跑 evaluate（Judge 非确定性），或检查 q02/q07 生成是否偏离 rubric。
 
-## 数据基线（fusion）
+## 数据基线（MinerU）
 
 `.env` 建议：
 
-- `PDF_PARSER_BACKEND=fusion`
-- `DOCLING_OCR_ENGINE=rapidocr`
+- `PDF_PARSER_BACKEND=mineru`
 - `INDEX_HYPOTHETICAL_QUESTIONS=true`
 
 验收 ingest：
 
 - `artifacts/parsed/doc.json`：`quality.passed=true`，含 `4.1.2`、`table_id=表1`
-- `artifacts/chroma/index_meta.json`：`dual_dense_enabled=true`
-- 正文目录：`artifacts/parsed/md_ingest/fusion/`
+- `artifacts/faiss/index_meta.json`：`dual_dense_enabled=true`（2026-05 起稠密索引为 FAISS；旧 `artifacts/chroma/` 需重新 ingest）
+- 正文目录：`artifacts/parsed/md_ingest/mineru/`（`page_001.md` …；目录在 `.gitignore` 的 `artifacts/` 下，IDE 可能默认隐藏，以 `doc.json` 的 `md_ingest_dir` 为准）
 
 ## 已知取舍（答辩可说明）
 
@@ -61,5 +66,6 @@ source .venv/bin/activate
 
 ## 评委环境提示
 
-- 使用 `python3` 或 `.venv/bin/python`，勿依赖系统 `python` 命令。
-- Chroma/NumPy 在部分环境需 `bash scripts/fix_mineru_env.sh` 后重跑 ingest。
+- 安装与换机：[`docs/setup/environment.md`](../setup/environment.md) → 评委 `bash scripts/setup.sh minimal`（仓库含 `artifacts/`）；开发 `bash scripts/setup.sh`。
+- 使用 `.venv/bin/python`，勿依赖系统 `python` 命令。
+- 从头 MinerU ingest：`bash scripts/setup.sh` 后 `ingest.py --force-full`。

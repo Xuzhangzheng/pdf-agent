@@ -6,8 +6,9 @@
 ## 1. 输入与健壮性原则
 
 - 默认 PDF：[`pdf/GBT 1568-2008 键 技术条件.pdf`](../../pdf/GBT%201568-2008%20键%20技术条件.pdf)（**4 页**扫描件）
-- MVP：`MVP_FORCE_SCANNED=true`，扫描件走 OCR；`PDF_PARSER_BACKEND=mineru|docling`（见 [parser-backends.md](./parser-backends.md)）
+- MVP：`MVP_FORCE_SCANNED=true`，扫描件走 OCR；`PDF_PARSER_BACKEND=mineru`（见 [parser-backends.md](./parser-backends.md)）
 - 规则**参数化**（`settings`），便于合同/手册迁移；不以单文档硬编码
+- 表格 LaTeX：ingest 时 [`table_postprocess.py`](../../src/pdf/table_postprocess.py) 将 `\multicolumn` 归一化为单元格数值（修改后需重跑 ingest）
 
 **出处**：作业第 2 步（正文、条款、表格）；评审 OCR/表格。
 

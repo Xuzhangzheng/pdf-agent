@@ -24,10 +24,15 @@ logger = logging.getLogger("ingest")
 def main() -> int:
     parser = argparse.ArgumentParser(description="Ingest PDF into vector + BM25 index")
     parser.add_argument("--session-id", default=None, help="Usage log session id")
+    parser.add_argument(
+        "--force-full",
+        action="store_true",
+        help="Force reparse (MinerU/Docling) and regenerate question vectors",
+    )
     args = parser.parse_args()
     sid = args.session_id or f"ingest-{uuid.uuid4().hex[:8]}"
     try:
-        result = ingest(session_id=sid)
+        result = ingest(session_id=sid, force_full=args.force_full)
         logger.info("Ingest OK: %s", result)
         print(result)
         return 0

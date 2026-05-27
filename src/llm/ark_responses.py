@@ -51,6 +51,7 @@ def ark_responses_create(
     latency = int((time.perf_counter() - t0) * 1000)
 
     inp, out, total = _usage_tokens(resp.usage)
+    text = (resp.output_text or "").strip()
     log_usage(
         stage=stage,
         model=model_id,
@@ -59,9 +60,9 @@ def ark_responses_create(
         total_tokens=total,
         latency_ms=latency,
         session_id=session_id,
+        input={"payload": input_payload},
+        output={"text": text},
     )
-
-    text = (resp.output_text or "").strip()
     if not text:
         logger.warning("ARK responses returned empty output_text (model=%s)", model_id)
     return text

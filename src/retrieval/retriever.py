@@ -304,8 +304,47 @@ class HybridRetriever:
         retrieval_round: int = 0,
         session_id: str | None = None,
     ) -> RetrievalOutcome:
+        from src.observability.langfuse_telemetry import span_context
+
+        with span_context(
+            "retrieval.hybrid",
+            input={"query": query, "retrieval_round": retrieval_round},
+            metadata={"question_id": question_id},
+        ) as span:
+            outcome = self._retrieve_impl(
+                query,
+                question_id=question_id,
+                retrieval_round=retrieval_round,
+                session_id=session_id,
+            )
+            if span is not None:
+                from src.observability.langfuse_telemetry import prepare_langfuse_io
+
+                span.update(
+                    output=prepare_langfuse_io(
+                        {
+                            "evidence_count": len(outcome.evidence),
+                            "hard_refuse": outcome.hard_refuse,
+                            "max_rrf": outcome.max_rrf,
+                            "reranker_degraded": outcome.reranker_degraded,
+                            "rerank_before_top1": outcome.rerank_before_top1,
+                            "rerank_after_top1": outcome.rerank_after_top1,
+                            "top_chunk_ids": [e.chunk_id for e in outcome.evidence[:5]],
+                        }
+                    )
+                )
+            return outcome
+
+    def _retrieve_impl(
+        self,
+        query: str,
+        *,
+        question_id: str | None = None,
+        retrieval_round: int = 0,
+        session_id: str | None = None,
+    ) -> RetrievalOutcome:
         try:
-            collection = self.indexer.get_collection()
+            dense_store = self.indexer.load_dense_index()
             bm25, chunks = self.indexer.load_bm25()
         except Exception as e:
             logger.error("Index missing: %s", e)
@@ -321,23 +360,15 @@ class HybridRetriever:
         top_n = self.settings.rerank_top_n
         q_vec = self._embed_query(query)
         try:
-            chroma_total = collection.count()
+            dense_total = dense_store.count()
         except Exception:
-            chroma_total = len(chunks)
+            dense_total = len(chunks)
         dense_pool = min(
             max(k * self.settings.retrieval_dense_pool_factor, k),
-            chroma_total,
+            dense_total,
         )
-        dense = collection.query(
-            query_embeddings=[q_vec],
-            n_results=dense_pool,
-            include=["documents", "metadatas", "distances"],
-        )
-
-        dense_ids = dense["ids"][0] if dense["ids"] else []
-        dense_metas = dense["metadatas"][0] if dense.get("metadatas") else []
-        dense_dist = dense["distances"][0] if dense["distances"] else []
-        dist_by_id = {cid: d for cid, d in zip(dense_ids, dense_dist)}
+        dense_ids, dense_metas, dense_dist = dense_store.search(q_vec, dense_pool)
+        dist_by_id = {rid: d for rid, d in zip(dense_ids, dense_dist)}
         dense_scores = best_dense_scores_per_chunk(
             dense_ids, dense_metas, dist_by_id
         )

@@ -131,6 +131,11 @@ class Reranker:
         latency = int((time.perf_counter() - t0) * 1000)
         usage = data.get("usage", {})
         total_tokens = usage.get("total_tokens", 0)
+        results = data.get("results", [])
+        out = [
+            RerankResult(index=int(r["index"]), relevance_score=float(r["relevance_score"]))
+            for r in results
+        ]
         log_usage(
             stage="retrieve_rerank_dashscope",
             model=self.settings.reranker_model,
@@ -139,12 +144,18 @@ class Reranker:
             question_id=question_id,
             retrieval_round=retrieval_round,
             session_id=session_id,
+            input={
+                "query": query,
+                "document_count": len(documents),
+                "document_previews": [d[:300] for d in documents[:3]],
+                "top_n": top_n,
+            },
+            output={
+                "results": [
+                    {"index": r.index, "relevance_score": r.relevance_score} for r in out
+                ],
+            },
         )
-        results = data.get("results", [])
-        out = [
-            RerankResult(index=int(r["index"]), relevance_score=float(r["relevance_score"]))
-            for r in results
-        ]
         self._degraded = False
         return out[:top_n]
 
@@ -165,14 +176,6 @@ class Reranker:
         pairs = [[query, d] for d in documents]
         scores = model.predict(pairs)
         latency = int((time.perf_counter() - t0) * 1000)
-        log_usage(
-            stage="retrieve_rerank_local",
-            model=self.settings.reranker_local_model,
-            latency_ms=latency,
-            question_id=question_id,
-            retrieval_round=retrieval_round,
-            session_id=session_id,
-        )
         ranked = sorted(
             [
                 RerankResult(index=i, relevance_score=float(scores[i]))
@@ -180,6 +183,26 @@ class Reranker:
             ],
             key=lambda x: x.relevance_score,
             reverse=True,
+        )
+        top = ranked[:top_n]
+        log_usage(
+            stage="retrieve_rerank_local",
+            model=self.settings.reranker_local_model,
+            latency_ms=latency,
+            question_id=question_id,
+            retrieval_round=retrieval_round,
+            session_id=session_id,
+            input={
+                "query": query,
+                "document_count": len(documents),
+                "document_previews": [d[:300] for d in documents[:3]],
+                "top_n": top_n,
+            },
+            output={
+                "results": [
+                    {"index": r.index, "relevance_score": r.relevance_score} for r in top
+                ],
+            },
         )
         self._degraded = "local_fallback"
         return ranked[:top_n]
